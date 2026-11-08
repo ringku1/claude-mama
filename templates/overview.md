@@ -43,6 +43,7 @@ overview.md — the ONLY file the user reads. Rules:
 
 ## Key decisions
 
+- Every decision you made yourself (`inferred`/`assumed`) that changes product behaviour (a limit, a default, a rule users hit) must be listed here so the user can veto it.
 - <one plain sentence each, with the reason: "Deleted courses can be restored, because the rest of the app already works that way.">
 
 ## What changed along the way

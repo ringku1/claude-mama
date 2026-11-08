@@ -15,7 +15,8 @@ Before each dispatch wave: `bash ${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready
 - Heavy verifies (full build, e2e) and anything touching shared services run one at a time across all goals: `flock <store>/.heavy.lock <cmd>`.
 - Read-only agents share the working tree.
 - All agents of a goal work in the goal's worktree (give the absolute path in the brief). One editing agent at a time can work there directly.
-- Parallel editing agents each get a step worktree branched from the goal branch — `git -C <goal worktree> worktree add <goal worktree>.<step> -b <branch>-<step>` — never the Agent tool's own worktree isolation (it branches from the session's checkout, not the goal branch). Merge each into the goal branch in planned order; you resolve conflicts; remove the step worktree and branch after merging.
+- Exception: parallel editing agents may share the goal worktree when their `owns` are disjoint top-level areas (e.g. `apps/api/**` vs `apps/web/**`), neither commits, and you commit per area after each verify — cheaper than a step worktree that needs a fresh install. Log it as a decision.
+- Otherwise, parallel editing agents each get a step worktree branched from the goal branch — `git -C <goal worktree> worktree add <goal worktree>.<step> -b <branch>-<step>` — never the Agent tool's own worktree isolation (it branches from the session's checkout, not the goal branch). Merge each into the goal branch in planned order; you resolve conflicts; remove the step worktree and branch after merging.
 
 ## Brief (what an agent receives) — ≤ ~300 words
 
