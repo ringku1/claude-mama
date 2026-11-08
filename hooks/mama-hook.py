@@ -6,9 +6,12 @@ so a broken hook can't disrupt a session.
 
 - precompact:   tells the compaction summary to keep this session's mama goal (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
-- stop:         if this session's goal is still `running`, blocks the stop once with a reminder
-                to continue or set an honest status (waiting / paused / blocked).
+- stop:         blocks the stop once (with every problem listed) if this session's goal:
+                is `running` without a final `wait` log line; has plan.md newer than overview.md;
+                has a user decision not yet followed by learning (patterns.md / `E learn` line);
+                or says `done` while close-check.py fails.
 """
+import datetime
 import json
 import os
 import re
@@ -71,6 +74,48 @@ def waiting_on_background(plan):
     return re.match(r"E\d+ \d\d:\d\d wait\b", last) is not None
 
 
+def log_lines(plan):
+    try:
+        with open(os.path.join(os.path.dirname(plan), "log.md"), encoding="utf-8") as f:
+            return [l for l in f.read().splitlines() if l.strip()]
+    except Exception:
+        return []
+
+
+def unlearned(plan):
+    """A `tag: user` decision with no learning after it (no `E learn` line, patterns.md older)."""
+    lines = log_lines(plan)
+    idx = [i for i, l in enumerate(lines) if l.startswith("D") and "tag: user" in l]
+    if not idx:
+        return False
+    last = idx[-1]
+    if any(re.match(r"E\d+ \d\d:\d\d learn\b", l) for l in lines[last + 1:]):
+        return False
+    m = re.match(r"D\d+ (\d\d):(\d\d) ", lines[last])
+    try:
+        mt = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.expanduser("~/.claude/mama/patterns.md")))
+    except OSError:
+        return True
+    if not m:
+        return False
+    when = mt.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+    return mt < when
+
+
+def overview_stale(plan):
+    ov = os.path.join(os.path.dirname(plan), "overview.md")
+    try:
+        return os.path.getmtime(plan) > os.path.getmtime(ov) + 2
+    except OSError:
+        return False
+
+
+def close_problems(plan):
+    check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "close-check.py")
+    r = subprocess.run([sys.executable, check, os.path.dirname(plan)], capture_output=True, text=True, timeout=10)
+    return "" if r.returncode == 0 else r.stdout.strip()
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
@@ -84,10 +129,35 @@ def main():
     store = os.path.join(root, ".claude", "mama")
     all_goals = goals(store)
     open_goals = [g for g in all_goals if g["status"] in OPEN]
+    mine = session_slug(inp.get("transcript_path", ""))
+    any_goal = next((g for g in all_goals if g["slug"] == mine), None)
+    my_goal = any_goal if any_goal and any_goal["status"] in OPEN else None
+
+    if mode == "stop":
+        if inp.get("stop_hook_active") or not any_goal:
+            return
+        g, problems = any_goal, []
+        if g["status"] == "running" and not waiting_on_background(g["plan"]):
+            problems.append(
+                f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
+                "status (waiting / paused / blocked) — or, to wait on your own background work, log `E wait <what>` last.")
+        if overview_stale(g["plan"]):
+            problems.append("plan.md changed after overview.md — regenerate overview.md (the user's only window).")
+        if unlearned(g["plan"]):
+            problems.append(
+                "A user decision was logged but nothing was learned since. For each answer that overrode your "
+                "recommendation or stated a preference run scripts/learn.py (seen/stated/contra); if none, log `E learn none`.")
+        if g["status"] == "done":
+            out = close_problems(g["plan"])
+            if out:
+                problems.append("Status is done but the close checklist fails:\n" + out)
+        if problems:
+            reason = f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems)
+            print(json.dumps({"decision": "block", "reason": reason}))
+        return
+
     if not open_goals:
         return
-    mine = session_slug(inp.get("transcript_path", ""))
-    my_goal = next((g for g in open_goals if g["slug"] == mine), None)
 
     if mode == "precompact":
         if my_goal:
@@ -112,19 +182,6 @@ def main():
             "before doing anything else. Never adopt another session's goal by guess — ask the user if unsure."
         )
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ctx}}))
-        return
-
-    if mode == "stop":
-        if inp.get("stop_hook_active") or not my_goal or my_goal["status"] != "running":
-            return
-        if waiting_on_background(my_goal["plan"]):
-            return
-        reason = (
-            f"mama goal '{my_goal['slug']}' is still marked running ({my_goal['progress']}). "
-            "Continue with the next step. If you're stopping on purpose, first set the goal status "
-            "honestly in plan.md — waiting (for the user), paused, blocked, or done — and update overview.md."
-        )
-        print(json.dumps({"decision": "block", "reason": reason}))
         return
 
 

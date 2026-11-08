@@ -111,8 +111,14 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 - **Use** (intake, questions, planning): a learned pattern sets the recommended option, settles a question whose answer it already knows (say so in one line: "Using your usual: X"), and shapes the plan and overview. The base branch is still always asked. The user's explicit instructions and repo rules beat any pattern.
 - **Learn immediately** when the user corrects your work or plan, overrides a recommendation, or states a preference: add or update a line. Don't wait for close — that's when it's fresh.
 - **Learn at close**: their choices this goal (options, mode, PR), goal size, estimate vs actual.
+- **Write it with** `python3 ${CLAUDE_SKILL_DIR}/scripts/learn.py seen|contra|stated|goal "<pattern>"` — it locks, counts, dates and promotes; never hand-edit. After any user decision: learn.py, or log `E learn none`.
 - **Format**: one line per pattern — `<pattern> — <n>/<m> — last <date>`. Learned at ≥3 consistent observations, else it stays under "Watching". A preference the user states outright is learned at once — write `stated` instead of a count. A contradiction lowers the count; contradicted twice in a row → back to Watching or deleted.
 - **Never** record secrets, client data, or repo facts (those belong in `profile.md` / `lessons.md`).
+
+## Guards (scripts and hooks enforce these — don't work around them)
+
+- `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses `status=done` until `close-check.py` passes, and reminds you of the Trello start comment.
+- The Stop hook blocks once, listing every problem, when your goal: says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
 
 ## Writing state
 

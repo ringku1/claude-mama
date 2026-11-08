@@ -31,7 +31,7 @@ Questions turn a vague goal into specific context. Every question must be one th
 | research, findings only      | Scope, depth. No git questions.                                                                                                                                                  |
 | quick                        | Base branch; PR choice if it changes code.                                                                                                                                       |
 
-**After the answers:** every answer that overrode the recommended option, and every preference stated in an answer, goes to `~/.claude/mama/patterns.md` now (under `flock ~/.claude/mama/.patterns.lock`), before planning, not at close.
+**After the answers:** for every answer that overrode the recommended option or stated a preference, run `scripts/learn.py seen|stated "<pattern>"` now, before planning. Nothing new → log `E learn none`. (The Stop hook blocks until one of the two follows the last `tag: user` decision.)
 
 **Mode** (checkpointed — recommended for a repo's first goals / autonomous) is asked together with plan approval, as the approval question's options — not in the question batch, and never left unanswered.
 

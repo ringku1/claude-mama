@@ -9,10 +9,22 @@ Usage:
 
 Row columns are matched by the table's header. Header fields are the `key: value`
 pairs in the lines above the first section. Prints what changed and the progress line.
+
+Guards (they enforce the skill's rules, so state can't drift):
+- a step set to running/testing/fixing gets start=now if empty; done/obsolete gets end=now if empty
+- a step set to running whose deps aren't done prints a WARNING
+- header status approved/running needs mode checkpointed|autonomous|quick (ask the user)
+- header status done runs close-check.py and is refused until it prints OK
+- first switch to running with a linked Trello card and no `trello` log line prints a REMINDER
 """
 import datetime
+import os
 import re
+import subprocess
 import sys
+
+NOW = lambda: datetime.datetime.now().strftime("%H:%M")
+MODES = {"checkpointed", "autonomous", "quick"}
 
 LIVE_EXCLUDED = {"obsolete", "parked"}
 
@@ -58,9 +70,62 @@ def set_row(lines, section, row_id, updates):
     for k, v in updates.items():
         if k not in header:
             sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
-        vals[header.index(k)] = datetime.datetime.now().strftime("%H:%M") if v == "now" else v
+        vals[header.index(k)] = NOW() if v == "now" else v
+    if "status" in header and "status" in updates:
+        st, col = updates["status"], {h: i for i, h in enumerate(header)}
+        if st in ("running", "testing", "fixing") and "start" in col and not vals[col["start"]]:
+            vals[col["start"]] = NOW()
+        if st in ("done", "obsolete") and "end" in col and not vals[col["end"]]:
+            vals[col["end"]] = NOW()
+        if st == "running" and "deps" in col:
+            done = {cells(lines[r])[0] for r in rows if cells(lines[r])[col["status"]] in ("done", "obsolete")}
+            open_deps = [d for d in expand(vals[col["deps"]]) if d not in done]
+            if open_deps:
+                print(f"WARNING: {row_id} started before its deps are done: {', '.join(open_deps)}")
     lines[target] = render(vals)
     print(lines[target])
+
+
+def expand(deps):
+    """'S1-S4, S6a' -> ['S1','S2','S3','S4','S6a']"""
+    out = []
+    for part in re.split(r"[,\s]+", deps):
+        m = re.fullmatch(r"S(\d+)-S?(\d+)", part)
+        if m:
+            out += [f"S{n}" for n in range(int(m.group(1)), int(m.group(2)) + 1)]
+        elif re.fullmatch(r"S\d+\w*", part):
+            out.append(part)
+    return out
+
+
+def header_value(lines, key):
+    for l in lines:
+        if l.startswith("## "):
+            break
+        m = re.search(rf"(?:^|\| ){re.escape(key)}: ([^|]*)", l)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def guard_header(path, lines, updates):
+    st = updates.get("status")
+    mode = updates.get("mode", header_value(lines, "mode"))
+    if st in ("approved", "running") and mode not in MODES:
+        sys.exit("REFUSED: mode is not set. Ask the user with the approval question "
+                 "(approve · checkpointed / approve · autonomous), then set mode=… with the status.")
+    if st == "done":
+        check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "close-check.py")
+        r = subprocess.run([sys.executable, check, os.path.dirname(os.path.abspath(path))],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit("REFUSED: goal can't close yet.\n" + r.stdout)
+    if st == "running" and header_value(lines, "status") != "running":
+        trello = header_value(lines, "trello")
+        logp = os.path.join(os.path.dirname(os.path.abspath(path)), "log.md")
+        log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""
+        if trello not in ("", "none", "—") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
+            print("REMINDER: Trello card linked — post the start comment now (what this goal will change), log `trello`.")
 
 
 def set_header(lines, updates):
@@ -99,6 +164,7 @@ def main():
     lines = open(path, encoding="utf-8").read().split("\n")
     updates = parse_updates(sys.argv[3:])
     if what == "--header":
+        guard_header(path, lines, updates)
         set_header(lines, updates)
     elif what.startswith("C"):
         set_row(lines, "## Criteria", what, updates)
