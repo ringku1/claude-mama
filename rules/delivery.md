@@ -66,5 +66,5 @@ Comment right after plan approval (what this goal will change, 1-2 lines), after
    - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
    - `~/.claude/mama/patterns.md` (under its lock) — the user's choices this goal, and the goal's size and real duration/tokens from the metrics line (never guessed), per SKILL.md → Learning the user.
 3. Clean up only what this run created: step worktrees, temp files, processes it started. The goal's own worktree: if the branch is pushed and the tree is clean, remove it (`git worktree remove`) — the branch stays, so the user can check it out; otherwise keep it and say where it is. Never stop the user's servers or containers.
-4. Set plan status `done`.
+4. Run `python3 ${CLAUDE_SKILL_DIR}/scripts/close-check.py <store>/<slug>`. It lists anything missing (criteria evidence, step times, Trello line, metrics line, patterns update) and prints a prefilled metrics line — paste it into `lessons.md`, fill the `?` fields. Set plan status `done` only when it prints OK.
 5. Tell the user in a few lines: done, branch, PR status, where the overview is.
