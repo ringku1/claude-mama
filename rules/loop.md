@@ -21,10 +21,10 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 ## Cycle
 
-1. **Dispatch** ready steps (deps done, owners free) up to the limit from `${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready>`. Status `running`; log `dispatch`.
+1. **Dispatch** ready steps (deps passed — not just started; owners free) up to the limit from `${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready>`. Status `running`; log `dispatch`.
 2. **Self-check**: the worker runs the cheapest checks on touched files (format, typecheck) before handing off.
 3. **Verify**: run the step's verify (and the checker, if the step needs one). Status `testing`.
-4. **Pass** → record evidence and covered files in notes, status `done`, commit (`rules/delivery.md`), log `pass` + `commit`.
+4. **Pass** → record evidence and covered files in notes, status `done`, `end=now`, commit (`rules/delivery.md`), log `pass` + `commit`. When this completes a criterion's proof, fill its `evidence` cell (`plan-set.py <plan> C2 "evidence=..."`) — pre-delivery reads evidence from the Criteria table, not from the overview.
 5. **Fail** → focused fix: the failing output (trimmed), the file, the expected behaviour. Status `fixing`, att +1. Trivial fixes (a checker's nit, a typo) are made inline and re-proven by the command only — no new checker round.
 6. **Flaky?** A failure that doesn't reproduce on one rerun is logged and not counted.
 7. **Cap**: after 2 failed fix rounds, rethink — re-read decisions in force, check `lessons.md`, consider another approach. Same error twice = rethink, never a blind retry. Third failure → `blocked`, reason in log and overview "Needs your input"; continue other steps.

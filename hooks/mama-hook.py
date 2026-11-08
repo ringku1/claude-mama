@@ -60,6 +60,17 @@ def session_slug(transcript):
     return hits[-1] if hits else None
 
 
+def waiting_on_background(plan):
+    """True if the goal's last log line is `E<n> HH:MM wait ...` — ending the turn to wait on
+    background work (an agent, the gate) is legitimate; its notification wakes the session."""
+    try:
+        with open(os.path.join(os.path.dirname(plan), "log.md"), encoding="utf-8") as f:
+            last = [l for l in f.read().splitlines() if l.strip()][-1]
+    except Exception:
+        return False
+    return re.match(r"E\d+ \d\d:\d\d wait\b", last) is not None
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
@@ -105,6 +116,8 @@ def main():
 
     if mode == "stop":
         if inp.get("stop_hook_active") or not my_goal or my_goal["status"] != "running":
+            return
+        if waiting_on_background(my_goal["plan"]):
             return
         reason = (
             f"mama goal '{my_goal['slug']}' is still marked running ({my_goal['progress']}). "

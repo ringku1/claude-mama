@@ -26,12 +26,14 @@ Questions turn a vague goal into specific context. Every question must be one th
 
 | Goal                         | Must ask                                                                                                                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| build / fix / mixed          | **Base branch** — options: the repo's default branch (recommended), plus other relevant branches (current, recent), no duplicates; free text allowed. Always asked, never assumed. **PR** — ask me at the end (recommended) / open automatically / no PR. |
+| build / fix / mixed          | **Base branch** — options: the repo's default branch (recommended), plus other relevant branches (current, recent), no duplicates; free text allowed. When the work continues an unmerged feature branch, offer "commit on <branch> itself" and "new branch off <branch>". Always asked, never assumed. **PR** — ask me at the end (recommended) / open automatically / no PR. |
 | research with a file deliverable | **Commit it?** — leave it uncommitted for you (recommended) / commit on a branch (then base branch + PR are asked too). Plus scope, depth, output path.                       |
 | research, findings only      | Scope, depth. No git questions.                                                                                                                                                  |
 | quick                        | Base branch; PR choice if it changes code.                                                                                                                                       |
 
-**Mode** (checkpointed — recommended for a repo's first goals / autonomous) is asked together with plan approval, not in the question batch.
+**After the answers:** every answer that overrode the recommended option, and every preference stated in an answer, goes to `~/.claude/mama/patterns.md` now (under `flock ~/.claude/mama/.patterns.lock`), before planning, not at close.
+
+**Mode** (checkpointed — recommended for a repo's first goals / autonomous) is asked together with plan approval, as the approval question's options — not in the question batch, and never left unanswered.
 
 ## How to ask
 

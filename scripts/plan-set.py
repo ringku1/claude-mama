@@ -2,7 +2,7 @@
 """Update a mama plan.md safely and recompute the progress line.
 
 Usage:
-  plan-set.py <plan.md> S3 status=done end=11:42 "notes=★ D2"   # a Steps row
+  plan-set.py <plan.md> S3 status=done end=now "notes=★ D2"     # a Steps row (now = real HH:MM)
   plan-set.py <plan.md> C1 "evidence=go test ./... ok @11:40"     # a Criteria row
   plan-set.py <plan.md> --header status=waiting pr=none           # header fields
   plan-set.py <plan.md> --progress                                # only recompute
@@ -10,6 +10,7 @@ Usage:
 Row columns are matched by the table's header. Header fields are the `key: value`
 pairs in the lines above the first section. Prints what changed and the progress line.
 """
+import datetime
 import re
 import sys
 
@@ -57,7 +58,7 @@ def set_row(lines, section, row_id, updates):
     for k, v in updates.items():
         if k not in header:
             sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
-        vals[header.index(k)] = v
+        vals[header.index(k)] = datetime.datetime.now().strftime("%H:%M") if v == "now" else v
     lines[target] = render(vals)
     print(lines[target])
 

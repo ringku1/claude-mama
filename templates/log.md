@@ -9,7 +9,7 @@ Write every line with scripts/log.py (it adds the ID and real time). Line shapes
   E<n>  HH:MM <type> <step?> <text>
 
 Event types: start, research, ask, answer, plan, approve, checkpoint, dispatch, pass, fail, fix, block, unblock,
-commit <hash>, merge-base, conflict, push, pr <url>, trello, change, park, pause, resume, compaction, done.
+wait <what> (ending the turn on background work), commit <hash>, merge-base, conflict, push, pr <url>, trello, change, park, pause, resume, compaction, done.
 Change example: E9 11:02 change goal: added sorting → +S7,S8; S4 obsolete; D3 revisit
 Decisions in force: grep '^D' and drop any superseded.
 -->

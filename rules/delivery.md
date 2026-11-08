@@ -14,6 +14,7 @@ Research goals: findings only → no git at all. A file deliverable the user cho
    If the branch already exists, add the worktree on it and merge the latest `origin/<base>` into it. Record `worktree:` and `branch:` in the plan header.
 4. In this repo's worktree, install what verifies need (e.g. `pnpm install` only if a step touches JS/TS) — note slow installs in `profile.md`.
 5. Never commit or push to the base branch or `main`, and never switch branches in the main checkout.
+6. **Continuing an existing feature branch** (the user chose "commit on <branch> itself"): `branch:` is that branch, `base:` is its PR target (usually `main`) — that is what "merging the base" merges. If the branch is already checked out in another worktree, work there (`worktree:` = that path) and don't remove it at close. Committing to it is allowed because the user chose it; `main` still never.
 
 ## Merging the base
 
@@ -53,7 +54,7 @@ Never merge, deploy, or run migrations against shared databases. That's the user
 
 ## Trello (if a card is linked and a Trello connector is available)
 
-Comment after each commit+push, at start, PR and test results. ≤5 plain lines: what was done, test result, what's next. Comments only; follow the repo's CONTRIBUTING for card moves. No connector → list what to set in the final message. Log `trello`.
+Comment right after plan approval (what this goal will change, 1-2 lines), after each push, PR, and test results, and when a decision changes what the card describes (a schema or contract change). Log every comment as `trello`; at close, a goal with a linked card and no `trello` log line is not done. ≤5 plain lines: what was done, test result, what's next. Comments only; follow the repo's CONTRIBUTING for card moves. No connector → list what to set in the final message. Log `trello`.
 
 ## Close
 
