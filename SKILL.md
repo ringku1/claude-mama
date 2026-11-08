@@ -63,7 +63,7 @@ The user may run several goals in parallel sessions. Each goal is isolated:
   - The agent limit (`scripts/resources.sh <ready> <store> <own slug>`) subtracts other goals' running steps.
   - `git fetch` and `git push` run as `git -C <main checkout> ...` — refs are shared with the worktree, and it works for any remote URL.
 
-**Times:** one `date +%H:%M` per step or event batch, reused for every write of that moment. Never estimate a clock time.
+**Times and IDs:** every `log.md` line goes through `python3 ${CLAUDE_SKILL_DIR}/scripts/log.py <log.md> <E|D|F|Q> "<text>"` — it stamps the real time and the next ID, so never type either by hand. Overview timeline times come from those log lines.
 
 **Deliverables** the user asks for (docs, reports, data) are `document` steps with an output path (user's choice; default `docs/`), never inside `.claude/mama/`, written for their reader with no loop state in them. Link them in overview by repo-relative path.
 
@@ -116,5 +116,5 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 
 - Status must be honest whenever you end your turn: waiting for the user → `waiting`; stopped by request → `paused`; stuck → `blocked`. A Stop hook reminds you once if you end a turn while the goal still says `running`.
 - Record an outcome only after checking the command's exit status — never chain a state write after a command with `;` (a failed push must not be logged as pushed).
-- After every step result, decision, change or commit: update `plan.md` with `python3 ${CLAUDE_SKILL_DIR}/scripts/plan-set.py <plan.md> <S3 | C1 | --header> key=value ...` (it also recomputes progress), and append to `log.md`. Unknown values are written `—`. A step with several commits lists all hashes in notes.
+- After every step result, decision, change or commit: update `plan.md` with `python3 ${CLAUDE_SKILL_DIR}/scripts/plan-set.py <plan.md> <S3 | C1 | --header> key=value ...` (it also recomputes progress), and append to `log.md` with `scripts/log.py`. Unknown values are written `—`. A step with several commits lists all hashes in notes.
 - Regenerate `overview.md` after plan approval, at each checkpoint, on status, on any change, and at close — from plan and log, as if writing it fresh. It is the user's only window: short, plain, current.

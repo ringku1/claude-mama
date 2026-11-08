@@ -1,7 +1,7 @@
 <!-- log.md — machine file, strictly APPEND-ONLY: every entry is one new line at the end. Never edit earlier lines.
 Read with tail / grep by prefix, never in full. Delete this comment.
 
-Line prefixes (ID + clock time from `date +%H:%M`):
+Write every line with scripts/log.py (it adds the ID and real time). Line shapes:
   Q<n>  HH:MM question | <text> | options: a / b / c | recommended: a
   D<n>  HH:MM decision | <question or Q-ref> | <choice> | why: ... | evidence: <file:line | cmd | source> | tag: verified|inferred|assumed|user
   D<n>  HH:MM supersedes D<m> | <new choice> | why: ...

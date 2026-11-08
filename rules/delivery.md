@@ -58,7 +58,12 @@ Comment after each commit+push, at start, PR and test results. ≤5 plain lines:
 ## Close
 
 1. Regenerate `overview.md` with the Final report: what was built/found, how verified, decisions worth review, parked follow-ups, spend.
-2. Update `~/.claude/mama/patterns.md` (SKILL.md → Learning the user), under its lock. Append to `<store>/lessons.md` under `flock <store>/.shared.lock` (a few lines): date, slug, type, approx tokens vs estimate (subagent counts from task notifications + rough main-thread estimate — label it approximate), questions asked / how many changed the plan, fix rounds, rework, compactions, assumptions that proved wrong, decisions reversed, one-line lessons.
+2. Learning — every item is required:
+   - `<store>/lessons.md` (append under `flock <store>/.shared.lock`) — one metrics line, then any lessons:
+     `<date> <slug> <type> | steps <n> | time est <m>m / actual <m>m | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
+     Actual time = first to last log timestamp. Tokens are approximate; say so.
+   - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
+   - `~/.claude/mama/patterns.md` (under its lock) — the user's choices this goal, and the goal's size and real duration/tokens from the metrics line (never guessed), per SKILL.md → Learning the user.
 3. Clean up only what this run created: step worktrees, temp files, processes it started. The goal's own worktree: if the branch is pushed and the tree is clean, remove it (`git worktree remove`) — the branch stays, so the user can check it out; otherwise keep it and say where it is. Never stop the user's servers or containers.
 4. Set plan status `done`.
 5. Tell the user in a few lines: done, branch, PR status, where the overview is.
