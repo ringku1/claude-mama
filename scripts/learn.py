@@ -5,7 +5,7 @@ Usage:
   learn.py seen    "<pattern>" [section]   # one more consistent observation (new → Watching 1/1)
   learn.py contra  "<pattern>"             # the user did the opposite (count down; 2 in a row → Watching)
   learn.py stated  "<pattern>" [section]   # the user said it outright → learned at once
-  learn.py goal    "<size and real numbers>"  # Goals and estimates line
+  learn.py goal    "<what it was> (<type>, <n> steps): est <m>m / <size>, actual <m>m / ~<n>k"
 
 Match an existing line by copying its pattern text (the part before the first " — ").
 At 3/… a Watching line moves to [section] (default "How you like things done").
@@ -66,6 +66,15 @@ def main():
             i = find(lines, text)
             old = lines.pop(i) if i is not None else None
             where = section_of(lines, i) if i is not None else WATCH
+            if old and " — stated — " in old and kind != "stated":
+                # a stated preference keeps its status; only the date moves
+                if kind == "contra":
+                    print(f"NOTE: the user went against a stated preference — ask once if it changed: {text}")
+                lines.insert(i, re.sub(r" — last \S+$", f" — last {today}", old))
+                text_out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
+                open(PATH, "w", encoding="utf-8").write(text_out.rstrip("\n") + "\n")
+                print(lines[i])
+                return
             n, m = 0, 0
             if old:
                 c = re.search(r" — (\d+)/(\d+) — ", old)

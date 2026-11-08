@@ -15,7 +15,7 @@ Write criteria before steps. Each must be checkable by a command, a test, or a c
 - **Confidence**: H/M/L per step. L steps get research or a question before building.
 - **Deliverables**: each is a `document` step with its output path.
 - **Budget**: size S (≤300k tokens) / M (≤1M) / L (set a number); record in plan header. Reference from real runs: a 3-step UI polish goal with one checker ≈ 150k; a 3-step toy build ≈ 70k; a cited research guide ≈ 110k; each checker agent ≈ 40k; a reviewer agent over a large branch diff (~80 files) ≈ 150-170k each (4 reviewers ≈ 655k), so a multi-reviewer review is M at least, L if fixes follow. Prefer `lessons.md` numbers from this repo when they exist.
-- **Time estimates** are in agent minutes, not human hours — a small build step typically takes 2-5 min, a checker 1-2 min. Calibrate from `lessons.md` (actual vs estimate) and `patterns.md`. ETAs in the overview come from these, so wrong estimates mislead the user.
+- **Time estimates** are in agent minutes, not human hours — a small build step typically takes 2-5 min, a release step 1-2 min, a checker 1-2 min, a reviewer agent on a big diff 5-9 min. Real runs so far finished in ~⅓ of the summed estimate (55→9, 60→34, 109→29, 15→5 min): if your sum looks high, it is. The ETA shown to the user is the critical path, not the sum. Calibrate from `lessons.md` (actual vs estimate) and `patterns.md`. ETAs in the overview come from these, so wrong estimates mislead the user.
 
 ## Validate before showing
 

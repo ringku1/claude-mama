@@ -14,7 +14,8 @@ Research goals: findings only → no git at all. A file deliverable the user cho
    If the branch already exists, add the worktree on it and merge the latest `origin/<base>` into it. Record `worktree:` and `branch:` in the plan header.
 4. In this repo's worktree, install what verifies need (e.g. `pnpm install` only if a step touches JS/TS) — note slow installs in `profile.md`.
 5. Never commit or push to the base branch or `main`, and never switch branches in the main checkout.
-6. **Continuing an existing feature branch** (the user chose "commit on <branch> itself"): `branch:` is that branch, `base:` is its PR target (usually `main`) — that is what "merging the base" merges. If the branch is already checked out in another worktree, work there (`worktree:` = that path) and don't remove it at close. Committing to it is allowed because the user chose it; `main` still never.
+6. **Continuing an existing feature branch** (the user chose "commit on <branch> itself"): `branch:` is that branch, `base:` is its PR target (usually `main`) — that is what "merging the base" merges. If the branch is already checked out in another worktree, work there (`worktree:` = that path) and don't remove it at close. Committing to it is allowed because the user chose it.
+7. **The user chose the default branch itself** ("work directly on main"): commit in the main checkout, no worktree, `worktree: n/a`. The only case where committing to `main` is allowed; still merge nothing else into it and never force-push.
 
 ## Merging the base
 
