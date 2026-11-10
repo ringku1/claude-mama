@@ -102,13 +102,17 @@ def unlearned(plan):
     if any(re.match(r"E\d+ \d\d:\d\d learn\b", l) for l in lines[last + 1:]):
         return False
     m = re.match(r"D\d+ (\d\d):(\d\d) ", lines[last])
+    started = re.search(r"started: (\d{4}-\d\d-\d\d \d\d:\d\d)", open(plan, encoding="utf-8").read(3000))
+    if not m or not started:
+        return False
     try:
         mt = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.expanduser("~/.claude/mama/patterns.md")))
     except OSError:
         return True
-    if not m:
-        return False
-    when = mt.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+    start = datetime.datetime.strptime(started.group(1), "%Y-%m-%d %H:%M")
+    when = start.replace(hour=int(m.group(1)), minute=int(m.group(2)))
+    if when < start:
+        when += datetime.timedelta(days=1)
     return mt < when
 
 
@@ -179,6 +183,12 @@ def main():
         if inp.get("stop_hook_active") or not any_goal:
             return
         g, problems = any_goal, []
+        try:
+            idle = datetime.datetime.now().timestamp() - os.path.getmtime(os.path.join(os.path.dirname(g["plan"]), "log.md"))
+        except OSError:
+            idle = 0
+        if g["status"] not in OPEN and idle > 3600:
+            return  # a goal closed earlier — don't nag about it in later, unrelated turns
         stale = overview_stale(g["plan"])
         pct = None
         if g["status"] in OPEN:
