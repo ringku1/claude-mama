@@ -86,6 +86,13 @@ def main():
     except (ValueError, OSError):
         pass
 
+    ov_p = os.path.join(goal, "overview.md")
+    ov = open(ov_p, encoding="utf-8").read() if os.path.exists(ov_p) else ""
+    if "**Status:**" not in ov:
+        missing.append("overview.md has no **Status:** line — write it from templates/overview.md")
+    if head.get("mode") != "quick" and "## Final report" not in ov:
+        missing.append("overview.md has no ## Final report (what was done, how verified, decisions, follow-ups)")
+
     if not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
 
