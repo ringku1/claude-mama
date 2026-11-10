@@ -52,25 +52,32 @@ def goals(store):
     return out
 
 
-def session_slug(transcript):
-    """The goal this session last worked on, from its own transcript."""
-    try:
-        with open(transcript, encoding="utf-8", errors="ignore") as f:
-            data = f.read()
-    except Exception:
-        return None
-    hits = re.findall(r"\.claude/mama/([a-z0-9][a-z0-9-]*)/(?:plan|log|overview)\.md", data)
-    return hits[-1] if hits else None
+def _spend():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "spend.py")
+    spec = importlib.util.spec_from_file_location("mama_spend", path)
+    sp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sp)
+    return sp
 
 
 def session_slugs(transcript):
-    """Every goal this session touched, in first-touched order."""
-    try:
-        with open(transcript, encoding="utf-8", errors="ignore") as f:
-            hits = re.findall(r"\.claude/mama/([a-z0-9][a-z0-9-]*)/(?:plan|log|overview)\.md", f.read())
-    except Exception:
+    """Goals this session wrote to (ran them), in first-written order. Reading doesn't count."""
+    if not transcript or not os.path.isfile(transcript):
         return []
-    return list(dict.fromkeys(hits))
+    return _spend().written_slugs(transcript)
+
+
+def session_slug(transcript):
+    """The goal this session last wrote to."""
+    try:
+        data = open(transcript, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        return None
+    slugs = _spend().written_slugs(data)
+    if not slugs:
+        return None
+    return max(slugs, key=lambda s: data.rfind(f".claude/mama/{s}/"))
 
 
 def waiting_on_background(plan):
@@ -132,11 +139,7 @@ def close_problems(plan):
 
 def measure_budget(plan, transcript):
     """Write the measured spend into the plan header (mtime kept); return pct of ceiling or None."""
-    import importlib.util
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "spend.py")
-    spec = importlib.util.spec_from_file_location("mama_spend", path)
-    sp = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sp)
+    sp = _spend()
     total = sp.measure(plan, transcript)
     if total is None:
         return None

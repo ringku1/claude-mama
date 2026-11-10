@@ -100,23 +100,60 @@ def ceiling(size):
     return None
 
 
-def find_transcript(plan):
-    """The session transcript that worked on this goal (newest one naming its folder)."""
+WRITE_SCRIPT = re.compile(r"(?:log|plan-set)\.py\S*\s+\S*\.claude/mama/([a-z0-9][a-z0-9-]*)/")
+NEW_GOAL = re.compile(r"new-goal\.py\S*\s+\S+\s+([a-z0-9][a-z0-9-]*)")
+
+
+def written_slugs(path_or_data):
+    """Goals this session wrote to (tool calls that create or change their files), in order.
+    Reading a goal's files doesn't count — only the session running a goal writes them."""
+    data = path_or_data
+    if "\n" not in data and os.path.isfile(data):
+        try:
+            data = open(data, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            return []
+    out = []
+    for line in data.splitlines():
+        if '"tool_use"' not in line or ".claude/mama/" not in line and "new-goal" not in line:
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        for b in r.get("message", {}).get("content") or []:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            inp = b.get("input", {})
+            if b.get("name") in ("Write", "Edit"):
+                out += SLUG_RE.findall(inp.get("file_path", ""))
+            elif b.get("name") == "Bash":
+                cmd = inp.get("command", "")
+                out += WRITE_SCRIPT.findall(cmd) + NEW_GOAL.findall(cmd)
+    return list(dict.fromkeys(out))
+
+
+def find_transcripts(plan):
+    """Every session transcript that wrote to this goal (a resumed goal spans several)."""
     lo, _, _ = window(plan)
-    needle = os.path.dirname(os.path.abspath(plan)) + "/"
-    best = None
+    slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
+    found = []
     for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
-        mt = os.path.getmtime(p)
-        if datetime.datetime.fromtimestamp(mt) < lo or (best and mt <= best[0]):
+        if datetime.datetime.fromtimestamp(os.path.getmtime(p)) < lo:
             continue
         try:
             with open(p, encoding="utf-8", errors="ignore") as f:
                 data = f.read()
         except OSError:
             continue
-        if needle in data and ran_mama(data):
-            best = (mt, p)
-    return best[1] if best else None
+        if f".claude/mama/{slug}/" in data and slug in written_slugs(data):
+            found.append(p)
+    return found
+
+
+def find_transcript(plan):
+    t = find_transcripts(plan)
+    return t[0] if t else None
 
 
 def ran_mama(data):
@@ -138,10 +175,18 @@ def ran_mama(data):
 
 
 def measure(plan, transcript=None):
-    """Tokens this goal spent (main thread + its subagents), or None if no transcript found."""
-    transcript = transcript or find_transcript(plan)
-    if not transcript:
+    """Tokens this goal spent (main thread + its subagents) over every session that wrote to
+    it, or None if none found. A given transcript only counts if it wrote to the goal."""
+    slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
+    found = find_transcripts(plan)
+    if transcript and transcript not in found:
+        return None if not found else sum(measure_one(plan, t) for t in found)
+    if not found:
         return None
+    return sum(measure_one(plan, t) for t in found)
+
+
+def measure_one(plan, transcript):
     lo, hi, _ = window(plan)
     slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
     timeline = []
