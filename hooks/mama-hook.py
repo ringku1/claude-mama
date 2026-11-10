@@ -63,6 +63,16 @@ def session_slug(transcript):
     return hits[-1] if hits else None
 
 
+def session_slugs(transcript):
+    """Every goal this session touched, in first-touched order."""
+    try:
+        with open(transcript, encoding="utf-8", errors="ignore") as f:
+            hits = re.findall(r"\.claude/mama/([a-z0-9][a-z0-9-]*)/(?:plan|log|overview)\.md", f.read())
+    except Exception:
+        return []
+    return list(dict.fromkeys(hits))
+
+
 def waiting_on_background(plan):
     """True if the goal's last log line is `E<n> HH:MM wait ...` — ending the turn to wait on
     background work (an agent, the gate) is legitimate; its notification wakes the session."""
@@ -160,6 +170,10 @@ def main():
     mine = session_slug(inp.get("transcript_path", ""))
     any_goal = next((g for g in all_goals if g["slug"] == mine), None)
     my_goal = any_goal if any_goal and any_goal["status"] in OPEN else None
+    touched = set(session_slugs(inp.get("transcript_path", ""))) if mode != "stop" else set()
+    mine_open = [g for g in open_goals if g["slug"] in touched]
+    if not my_goal and len(mine_open) == 1:
+        my_goal = mine_open[0]
 
     if mode == "stop":
         if inp.get("stop_hook_active") or not any_goal:
@@ -210,9 +224,11 @@ def main():
 
     if mode == "sessionstart":
         lines = [f"- {g['slug']} — {g['status']} — {g['progress']} — worktree {g['worktree']}" for g in open_goals]
+        others = [g["slug"] for g in mine_open if not my_goal or g["slug"] != my_goal["slug"]]
         hint = (
-            f"This session was most recently working on '{my_goal['slug']}'." if my_goal
-            else "Check the summary for which one (if any) is this session's."
+            (f"This session's goal is '{my_goal['slug']}' ({my_goal['status']})." if my_goal
+             else "Check the summary for which one (if any) is this session's.")
+            + (f" This session also touched open goal(s): {', '.join(others)}." if others else "")
         )
         ctx = (
             "Context was compacted. Open mama goals in this repo (store "
