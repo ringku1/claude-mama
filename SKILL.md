@@ -1,8 +1,8 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, change, pause, abort, list, resume.
 disable-model-invocation: true
-argument-hint: "<goal | quick <task> | status | change [slug] <what> | pause | abort | list | resume <slug>>"
+argument-hint: "<goal | quick <task> | status | ask [slug] <question> | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
 
 # mama
@@ -30,6 +30,7 @@ Parse `$ARGUMENTS`:
 | Input                            | Do                                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), blockers, next. Regenerate `overview.md`. |
+| `ask [<slug>] <question>`       | Answer a question about a goal's work, during or after it — see "Asking about the work". |
 | `change [<slug>] <what>` (or "change the plan: …" mid-run) | Modify the plan of an existing goal — add, alter or drop scope, tests or deliverables. Read `rules/changes.md` → "Running a change" and follow it. No slug: this session's goal; none, or several open → list them and ask. |
 | "go" / "continue" at a checkpoint | Set goal status `running`, log `E resume`, continue the loop.                                                       |
 | `pause`                          | Record state, set status `paused`, stop.                                                                              |
@@ -101,6 +102,15 @@ Read `rules/delivery.md`. Merge latest base, push, PR per the user's choice. Fin
 ## Quick mode
 
 For small tasks. Intake as usual (tracking files; worktree if code changes). Ask only: base branch, and PR choice if code changes. Plan 1-3 steps, one line each, proceed on approval. Same loop, commit and push rules.
+
+## Asking about the work
+
+`/mama ask [<slug>] <question>`, e.g. "why did you pick a soft delete?", "which files changed?", "how was the upload limit tested?". Works on open and closed goals, from any session.
+
+- **Which goal:** the slug given; else this session's goal; else the most recently updated goal in the store — name it in the first line of the answer ("About storage-page:"). Unsure between several → list them and ask.
+- **Sources, cheapest first:** `overview.md` → `plan.md` (criteria evidence, step verify and notes) → `log.md` (`grep '^D'` decisions, `^F` findings, `^Q` questions) → the code: the goal's worktree if it still exists, else `git -C <main checkout> log/diff <base>...<branch>` (the branch outlives the worktree) → `lessons.md`. Read the code only when the files don't answer it.
+- **Answer** in a few plain lines, citing where it comes from (a decision and its reason, a commit, a `file:line`, a test). Say plainly what the record doesn't show — never fill gaps with a guess.
+- **Read-only:** no edits to the goal's files or code (a log line after close would stretch its measured time). If the answer shows something is wrong or missing, say so and offer `/mama change <slug> …` (open goal) or a new goal (closed one) — don't act until the user picks.
 
 ## Re-entry (resume, after compaction, new session)
 
