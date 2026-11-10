@@ -6,6 +6,8 @@ Usage:
   plan-set.py <plan.md> C1 "evidence=go test ./... ok @11:40"     # a Criteria row
   plan-set.py <plan.md> --header status=waiting pr=none           # header fields
   plan-set.py <plan.md> --progress                                # only recompute
+  plan-set.py <plan.md> S+ kind=build "title=…" deps=S2 "verify=…" est=15m   # add a step (next id)
+  plan-set.py <plan.md> C+ "criterion=…" "proven by=S7"                       # add a criterion
 
 Row columns are matched by the table's header. Header fields are the `key: value`
 pairs in the lines above the first section. Prints what changed and the progress line.
@@ -15,6 +17,8 @@ Guards (they enforce the skill's rules, so state can't drift):
 - a step set to running whose deps aren't done prints a WARNING
 - header status approved/running needs mode checkpointed|autonomous|quick (ask the user)
 - header status done runs close-check.py and is refused until it prints OK
+- added rows get the next free id; a step needs title + verify, deps must exist; rows are never
+  deleted (set status=obsolete with a reason in notes)
 - first switch to running with a linked Trello card and no `trello` log line prints a REMINDER
 """
 import datetime
@@ -89,6 +93,33 @@ def set_row(lines, section, row_id, updates):
             sys.exit(f"REFUSED: {row_id} end {b} is before start {a}")
     lines[target] = render(vals)
     print(lines[target])
+
+
+def add_row(lines, section, prefix, updates):
+    header, rows = table(lines, section)
+    nums = [int(m.group(1)) for r in rows if (m := re.match(rf"{prefix}(\d+)", cells(lines[r])[0]))]
+    row_id = f"{prefix}{max(nums, default=0) + 1}"
+    vals = [""] * len(header)
+    vals[0] = row_id
+    defaults = {"status": "todo", "att": "0", "deps": "—", "evidence": "—"}
+    for k, v in {**defaults, **updates}.items():
+        if k not in header:
+            if k in defaults:
+                continue
+            sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
+        vals[header.index(k)] = v
+    need = ("title", "verify") if prefix == "S" else ("criterion", "proven by")
+    miss = [k for k in need if k in header and not vals[header.index(k)]]
+    if miss:
+        sys.exit(f"REFUSED: a new {prefix} row needs {', '.join(miss)}")
+    if prefix == "S":
+        ids = {cells(lines[r])[0] for r in rows}
+        bad = [d for d in expand(vals[header.index("deps")]) if d not in ids]
+        if bad:
+            sys.exit(f"REFUSED: unknown deps {', '.join(bad)}")
+    at = rows[-1] + 1 if rows else next(i for i in range(len(lines)) if lines[i].lstrip().startswith("|---") or lines[i].lstrip().startswith("| ---")) + 1
+    lines.insert(at, render(vals))
+    print("ADDED", lines[at])
 
 
 def expand(deps):
@@ -178,6 +209,8 @@ def main():
     if what == "--header":
         guard_header(path, lines, updates)
         set_header(lines, updates)
+    elif what in ("S+", "C+"):
+        add_row(lines, "## Steps" if what == "S+" else "## Criteria", what[0], updates)
     elif what.startswith("C"):
         set_row(lines, "## Criteria", what, updates)
     elif what.startswith("S"):

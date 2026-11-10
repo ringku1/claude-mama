@@ -1,8 +1,8 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, change, pause, abort, list, resume.
 disable-model-invocation: true
-argument-hint: "<goal | quick <task> | status | pause | abort | list | resume <slug>>"
+argument-hint: "<goal | quick <task> | status | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
 
 # mama
@@ -30,6 +30,7 @@ Parse `$ARGUMENTS`:
 | Input                            | Do                                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), blockers, next. Regenerate `overview.md`. |
+| `change [<slug>] <what>` (or "change the plan: …" mid-run) | Modify the plan of an existing goal — add, alter or drop scope, tests or deliverables. Read `rules/changes.md` → "Running a change" and follow it. No slug: this session's goal; none, or several open → list them and ask. |
 | "go" / "continue" at a checkpoint | Set goal status `running`, log `E resume`, continue the loop.                                                       |
 | `pause`                          | Record state, set status `paused`, stop.                                                                              |
 | `abort`                          | Record state, set status `aborted`, clean up what the run created (`rules/delivery.md` Close §3), stop. Keep tracking files. |
