@@ -41,6 +41,20 @@ def main():
         if s[si["status"]] == "done" and not (s[si["start"]] and s[si["end"]]):
             missing.append(f"step {s[0]} has no start/end time (plan-set.py ... start=now / end=now)")
 
+    for s in live:
+        a, b = s[si["start"]], s[si["end"]]
+        if a and b and re.fullmatch(r"\d\d:\d\d", a) and re.fullmatch(r"\d\d:\d\d", b) and b < a \
+                and not (a > "20:00" and b < "04:00"):
+            missing.append(f"step {s[0]} ends ({b}) before it starts ({a})")
+
+    for name, text in (("plan.md", plan.split("## ")[0]), ("log.md", log)):
+        junk = re.findall(r"<[a-z][^<>\n]*\|[^<>\n]*>|<!--|HH:MM", text)
+        if junk:
+            missing.append(f"{name} still has template placeholders ({', '.join(sorted(set(junk))[:3])})")
+
+    if re.search(r"budget: ~0k", plan) and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
+        missing.append("budget still ~0k though work ran — the Stop hook writes it; run scripts/spend.py <transcript> <plan> --write")
+
     chdr, crit = table(plan, "Criteria")
     ci = {k: i for i, k in enumerate(chdr)}
     for c in crit:
@@ -64,6 +78,14 @@ def main():
     except (ValueError, OSError):
         pass
 
+    profile_p = os.path.join(store, "profile.md")
+    try:
+        start_ts = datetime.datetime.strptime(started, "%Y-%m-%d %H:%M").timestamp()
+        if os.path.getmtime(profile_p) < start_ts and not re.search(r"^E\d+ \S+ profile\b", log, re.M):
+            missing.append("profile.md not refreshed — update facts this goal changed, or log `E profile none`")
+    except (ValueError, OSError):
+        pass
+
     times = re.findall(r"^[EDFQ]\d+ (\d\d:\d\d) ", log, re.M)
     mins = "?"
     if times:
@@ -82,7 +104,6 @@ def main():
 
     for m in missing:
         print("MISSING:", m)
-    print("REMINDER: refresh profile.md with any fact this goal changed (commands, environment, flaky tests).")
     print("METRICS:", line)
     print("OK — ready to close" if not missing else f"NOT READY — {len(missing)} missing")
     sys.exit(1 if missing else 0)

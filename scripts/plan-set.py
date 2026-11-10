@@ -82,6 +82,11 @@ def set_row(lines, section, row_id, updates):
             open_deps = [d for d in expand(vals[col["deps"]]) if d not in done]
             if open_deps:
                 print(f"WARNING: {row_id} started before its deps are done: {', '.join(open_deps)}")
+    if "start" in header and "end" in header:
+        a, b = vals[header.index("start")], vals[header.index("end")]
+        if re.fullmatch(r"\d\d:\d\d", a or "") and re.fullmatch(r"\d\d:\d\d", b or "") and b < a \
+                and not (a > "20:00" and b < "04:00"):
+            sys.exit(f"REFUSED: {row_id} end {b} is before start {a}")
     lines[target] = render(vals)
     print(lines[target])
 
@@ -114,6 +119,9 @@ def guard_header(path, lines, updates):
     if st in ("approved", "running") and mode not in MODES:
         sys.exit("REFUSED: mode is not set. Ask the user with the approval question "
                  "(approve · checkpointed / approve · autonomous), then set mode=… with the status.")
+    b = updates.get("budget", "")
+    if re.search(r"/\s*L\s*$", b):
+        sys.exit("REFUSED: size L needs a number, e.g. budget='~0k / L 1.5M'")
     if st == "done":
         check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "close-check.py")
         r = subprocess.run([sys.executable, check, os.path.dirname(os.path.abspath(path))],

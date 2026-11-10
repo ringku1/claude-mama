@@ -75,7 +75,7 @@ The user may run several goals in parallel sessions. Each goal is isolated:
 
 1. Classify the goal: **build** (changes code), **fix** (a bug), **research** (findings only), **mixed** (research, then build). Ambiguous → it's part of the questions.
 2. Normalize the input — text as given · file/md: read fully · Trello: card, checklist, comments · GitHub PR/issue: `gh` · "research X".
-3. Immediately create `<store>/<slug>/` with `overview.md`, `plan.md` (status `planning`), `log.md` from `templates/`. If the slug already exists, add a suffix. The goal now survives a compaction, and the user can already read the overview.
+3. Immediately run `python3 ${CLAUDE_SKILL_DIR}/scripts/new-goal.py <store> <slug> <type> "<source>"` — it creates the folder (suffixing a taken slug), a clean `plan.md` (status `planning`, real start time), `overview.md` and `log.md` with E1, and prints the overview rules. Use the slug it prints. Never copy templates by hand. The goal now survives a compaction, and the user can already read the overview.
 
 ### 2. Research
 
@@ -117,8 +117,8 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 
 ## Guards (scripts and hooks enforce these — don't work around them)
 
-- `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses `status=done` until `close-check.py` passes, and reminds you of the Trello start comment.
-- The Stop hook blocks once, listing every problem, when your goal: says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
+- `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses `status=done` until `close-check.py` passes (criteria evidence, step times, placeholders, Trello, metrics, patterns, profile — or `E profile none`), refuses an end time before the start, refuses size L without a number, and reminds you of the Trello start comment.
+- The Stop hook measures the goal's real token spend into the plan header at every turn end (`scripts/spend.py`), and blocks once, listing every problem, when your goal: is `running` at ≥70% of its budget; says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
 
 ## Writing state
 

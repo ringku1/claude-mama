@@ -116,6 +116,34 @@ def close_problems(plan):
     return "" if r.returncode == 0 else r.stdout.strip()
 
 
+def measure_budget(plan, transcript):
+    """Write the measured spend into the plan header (mtime kept); return pct of ceiling or None."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "spend.py")
+    spec = importlib.util.spec_from_file_location("mama_spend", path)
+    sp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sp)
+    lo, hi, size = sp.window(plan)
+    slug = os.path.basename(os.path.dirname(plan))
+    timeline = []
+    total = sp.usage_in(transcript, lo, hi, slug, timeline)
+    import glob
+    for p in glob.glob(os.path.join(os.path.splitext(transcript)[0], "subagents", "*.jsonl")):
+        if datetime.datetime.fromtimestamp(os.path.getmtime(p)) < lo:
+            continue
+        first = next((t for t, _, _ in sp.messages(p) if t), None)
+        if first and lo <= first <= hi and sp.slug_at(timeline, first) == slug:
+            total += sp.usage_in(p, lo, hi)
+    st = os.stat(plan)
+    text = open(plan, encoding="utf-8").read()
+    new = re.sub(r"(budget: )~?[^/|\n]*(/)", rf"\g<1>~{round(total / 1000)}k \g<2>", text, count=1)
+    if new != text:
+        open(plan, "w", encoding="utf-8").write(new)
+        os.utime(plan, (st.st_atime, st.st_mtime))
+    c = sp.ceiling(size)
+    return round(100 * total / c) if c else None
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
@@ -137,11 +165,22 @@ def main():
         if inp.get("stop_hook_active") or not any_goal:
             return
         g, problems = any_goal, []
+        stale = overview_stale(g["plan"])
+        pct = None
+        if g["status"] in OPEN:
+            try:
+                pct = measure_budget(g["plan"], inp.get("transcript_path", ""))
+            except Exception:
+                pct = None
+        if g["status"] == "running" and pct is not None and pct >= 70:
+            problems.append(
+                f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
+                "continue (then raise the size, e.g. budget='~…k / L 1.5M') / cut scope / stop.")
         if g["status"] == "running" and not waiting_on_background(g["plan"]):
             problems.append(
                 f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
                 "status (waiting / paused / blocked) — or, to wait on your own background work, log `E wait <what>` last.")
-        if overview_stale(g["plan"]):
+        if stale:
             problems.append("plan.md changed after overview.md — regenerate overview.md (the user's only window).")
         if unlearned(g["plan"]):
             problems.append(
