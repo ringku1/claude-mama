@@ -63,7 +63,7 @@ Comment right after plan approval (what this goal will change, 1-2 lines), after
 2. Learning — every item is required:
    - `<store>/lessons.md` (append under `flock <store>/.shared.lock`) — one metrics line, then any lessons:
      `<date> <slug> <type> | steps <n> | time est <m>m / actual <m>m | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
-     Actual time = first to last log timestamp. Tokens are approximate; say so.
+     Actual time = first to last log timestamp. Tokens are measured — take them from the `METRICS:` line close-check prints (run it first; it drafts this line).
    - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
    - `~/.claude/mama/patterns.md` via `scripts/learn.py` — `seen` for each choice the user made this goal (mode, PR, branch), and `goal "<kind, steps>: est <m>m / <tokens>, actual <m>m / ~<n>k"` from the metrics line (never guessed).
 3. Clean up only what this run created: step worktrees, temp files, processes it started. The goal's own worktree: if the branch is pushed and the tree is clean, remove it (`git worktree remove`) — the branch stays, so the user can check it out; otherwise keep it and say where it is. Never stop the user's servers or containers.

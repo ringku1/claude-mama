@@ -121,7 +121,7 @@ For small tasks. Intake as usual (tracking files; worktree if code changes). Ask
 2. **Manual test guide for the user** — they test in their own running app; never start, stop, reseed or migrate it. Per scenario: where (URL / screen / command, which branch must be running), any setup data, the exact steps, the expected result in plain words. Cover the happy path, edges and errors the code actually handles (empty, limits, permissions), and say what is out of scope. Tell them which branch to run if theirs isn't it.
 3. **Our own check, in parallel:** rerun the automated tests that prove those criteria (narrow, not the full suite), in the goal's worktree — or, if it's gone, a temporary one `.claude/worktrees/mama-<slug>-test` on the branch, removed after. Shared services under `flock <store>/.heavy.lock`. Report pass/fail with the command.
 4. **Record** in `<slug>/tests.md` (not log.md — a closed goal's log stays closed): date, scope, scenarios given, automated result, and later what the user reports.
-5. **The user reports back** ("upload of 0-byte file fails"): reproduce or read the code to confirm, add it to `tests.md`, then offer the fix — `/mama change <slug>` for an open goal, a new `fix` goal for a closed one (on the same branch if it isn't merged). Don't fix before they pick.
+5. **The user reports back** ("upload of 0-byte file fails"): reproduce or read the code to confirm, add it to `tests.md`, then offer the fix via `/mama change <slug>` — on a closed goal that reopens it (`rules/changes.md` step 0) so the fix gets steps, commits, log and a new close. Don't fix before they pick.
 
 ## Re-entry (resume, after compaction, new session)
 

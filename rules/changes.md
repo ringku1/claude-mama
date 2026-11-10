@@ -4,6 +4,7 @@ Goals, tests and wishes change. Handle each change so finished work isn't lost a
 
 ## Running a change (`/mama change`)
 
+0. **Closed goal** (`done`): reopen it — `plan-set.py --header status=running`, log `E reopen: <why>` — so the new work is tracked, measured and closed again like the first round (new steps, close check, lessons line updated, Trello comment after the push). Never change code for a closed goal off the books, e.g. only noting it in `tests.md`. Recreate its worktree on the branch if it was removed; merged branch → a new goal instead.
 1. **Re-enter** the goal if this session isn't already in it (SKILL.md → Re-entry). Never change another session's open goal unless the user named its slug.
 2. **Hold:** dispatch nothing new. A running agent whose step the change affects → stop it (TaskStop) and set that step back to `todo`; unaffected agents keep going.
 3. **Unclear request** → one AskUserQuestion batch (`rules/questions.md`), nothing more.

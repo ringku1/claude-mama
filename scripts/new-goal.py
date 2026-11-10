@@ -42,6 +42,9 @@ def main():
     plan = re.sub(r"progress: <[^|]*\| blocked: <n>", "progress: 0/0 (0%) | blocked: 0", plan, count=1)
     plan = re.sub(r"budget: ~<spent>k / <[^>]*>", "budget: ~0k / —", plan, count=1)
     plan = re.sub(r"started: <[^>]*>", f"started: {now}", plan, count=1)
+    head, sep, rest = plan.partition("\n## ")
+    head = re.sub(r"(\w[\w ]*?): <[^>]*>", r"\1: —", head)  # unknown yet → —, set when known
+    plan = head + sep + rest
     open(os.path.join(goal, "plan.md"), "w", encoding="utf-8").write(plan)
 
     raw = open(os.path.join(TPL, "overview.md"), encoding="utf-8").read()

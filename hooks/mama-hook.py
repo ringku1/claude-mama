@@ -77,7 +77,7 @@ def session_slug(transcript):
     slugs = _spend().written_slugs(data)
     if not slugs:
         return None
-    return max(slugs, key=lambda s: data.rfind(f".claude/mama/{s}/"))
+    return max(slugs, key=lambda s: data.rfind(s))
 
 
 def waiting_on_background(plan):

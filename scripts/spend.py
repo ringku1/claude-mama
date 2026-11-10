@@ -45,11 +45,11 @@ def cost(u):
 
 def usage_in(path, lo, hi, slug=None, timeline=None):
     """Sum usage in [lo, hi]. With slug: in the main transcript, only while that goal is the
-    one this session last touched; timeline collects (time, current slug) for subagents."""
+    one this session last wrote to (reads don't switch it); timeline collects (time, current slug) for subagents."""
     seen, total, current = set(), 0, None
     for t, line, u in messages(path):
         if slug is not None:
-            hits = SLUG_RE.findall(line)
+            hits = written_slugs(line) if '"tool_use"' in line else []
             if hits:
                 current = hits[-1]
             if t and timeline is not None:
@@ -100,13 +100,18 @@ def ceiling(size):
     return None
 
 
-WRITE_SCRIPT = re.compile(r"(?:log|plan-set)\.py\S*\s+\S*\.claude/mama/([a-z0-9][a-z0-9-]*)/")
-NEW_GOAL = re.compile(r"new-goal\.py\S*\s+\S+\s+([a-z0-9][a-z0-9-]*)")
+GOAL_DIR = re.compile(r"\.claude/mama/([a-z0-9][a-z0-9-]*)(?![\w.-])")
+# a shell command that changes files: the skill's writers, redirects, tee, in-place edits, python writes
+WRITE_HINT = re.compile(r"(?:log|plan-set|new-goal)\.py|(?<![\d&])>>?(?!&)\s*(?!/dev/null)[\w\"'$/]|\btee\b|sed -i|\.write\(")
+# working on the skill itself (cd into its folder) is not running a goal, even when it tests on one
+SKILL_DEV = re.compile(r"cd\s+\S*\.claude/skills/mama\b")
+NEW_GOAL = re.compile(r"new-goal\.py\S*\s+\S*(?:mama/?|\$\w+)\"?\s+([a-z0-9][a-z0-9-]*)")
 
 
 def written_slugs(path_or_data):
     """Goals this session wrote to (tool calls that create or change their files), in order.
-    Reading a goal's files doesn't count — only the session running a goal writes them."""
+    Reading a goal's files doesn't count — only the session running a goal writes them.
+    Shell writes count when the command names the goal folder (literal, in a variable, or cd)."""
     data = path_or_data
     if "\n" not in data and os.path.isfile(data):
         try:
@@ -129,7 +134,9 @@ def written_slugs(path_or_data):
                 out += SLUG_RE.findall(inp.get("file_path", ""))
             elif b.get("name") == "Bash":
                 cmd = inp.get("command", "")
-                out += WRITE_SCRIPT.findall(cmd) + NEW_GOAL.findall(cmd)
+                if WRITE_HINT.search(cmd) and not SKILL_DEV.search(cmd):
+                    out += GOAL_DIR.findall(cmd)
+                out += NEW_GOAL.findall(cmd)
     return list(dict.fromkeys(out))
 
 
@@ -146,7 +153,7 @@ def find_transcripts(plan):
                 data = f.read()
         except OSError:
             continue
-        if f".claude/mama/{slug}/" in data and slug in written_slugs(data):
+        if slug in data and slug in written_slugs(data):
             found.append(p)
     return found
 
