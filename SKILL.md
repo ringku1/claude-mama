@@ -140,6 +140,7 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 ## Guards (scripts and hooks enforce these — don't work around them)
 
 - `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses `status=done` until `close-check.py` passes (criteria evidence, step times, placeholders, Trello, metrics, patterns, profile — or `E profile none`), refuses an end time before the start, refuses size L without a number, and reminds you of the Trello start comment.
+- Every write through `log.py` / `plan-set.py` / `new-goal.py` records which session worked on which goal (`~/.claude/mama/activity.log`, from `CLAUDE_CODE_SESSION_ID`). That record — not guessing — tells the hooks which goal is this session's and tells `spend.py` whose tokens count. Writing goal files any other way leaves the goal unowned and unmeasured.
 - The Stop hook measures the goal's real token spend into the plan header at every turn end (`scripts/spend.py`), and blocks once, listing every problem, when your goal: is `running` at ≥70% of its budget; says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
 
 ## Writing state

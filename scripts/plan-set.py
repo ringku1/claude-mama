@@ -27,6 +27,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import activity  # noqa: E402
+
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
 
@@ -219,6 +222,7 @@ def main():
         sys.exit(f"unknown target {what!r}")
     progress(lines)
     open(path, "w", encoding="utf-8").write("\n".join(lines))
+    activity.record(os.path.dirname(os.path.abspath(path)))
 
 
 if __name__ == "__main__":

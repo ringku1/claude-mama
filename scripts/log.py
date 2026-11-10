@@ -10,7 +10,11 @@ Prints the line written. IDs and times are never typed by hand, so they can't dr
 import datetime
 import fcntl
 import re
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import activity  # noqa: E402
 
 
 def main():
@@ -26,6 +30,7 @@ def main():
         if content and not content.endswith("\n"):
             f.write("\n")
         f.write(line + "\n")
+    activity.record(os.path.dirname(os.path.abspath(path)))
     print(line)
 
 

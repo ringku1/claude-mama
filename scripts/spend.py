@@ -10,6 +10,9 @@ Prints `spend=<n>k pct=<p>` (pct of the size ceiling S 300k / M 1M / L <n>); --w
 """
 import datetime, glob, json, os, re, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import activity  # noqa: E402
+
 CEIL = {"S": 300_000, "M": 1_000_000}
 
 
@@ -140,9 +143,18 @@ def written_slugs(path_or_data):
     return list(dict.fromkeys(out))
 
 
+def transcript_of(sid):
+    hits = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))
+    return hits[0] if hits else None
+
+
 def find_transcripts(plan):
-    """Every session transcript that wrote to this goal (a resumed goal spans several)."""
+    """Every session transcript that wrote to this goal (a resumed goal spans several):
+    the recorded sessions (activity.log); for goals from before it, read the transcripts."""
+    recorded = [t for t in map(transcript_of, activity.sessions_for(os.path.dirname(os.path.abspath(plan)))) if t]
     lo, _, _ = window(plan)
+    if recorded and activity.entries()[0][0] <= lo:
+        return recorded  # the record covers this goal's whole life
     slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
     found = []
     for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
@@ -155,7 +167,7 @@ def find_transcripts(plan):
             continue
         if slug in data and slug in written_slugs(data):
             found.append(p)
-    return found
+    return list(dict.fromkeys(recorded + found))
 
 
 def find_transcript(plan):
@@ -193,17 +205,35 @@ def measure(plan, transcript=None):
     return sum(measure_one(plan, t) for t in found)
 
 
+def usage_where(path, lo, hi, keep):
+    seen, total = set(), 0
+    for t, _, u in messages(path):
+        if not u or not u[0] or not t or not (lo <= t <= hi) or u[1] in seen or not keep(t):
+            continue
+        seen.add(u[1])
+        total += cost(u[0])
+    return total
+
+
 def measure_one(plan, transcript):
     lo, hi, _ = window(plan)
-    slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
+    goal = os.path.dirname(os.path.abspath(plan))
+    slug = os.path.basename(goal)
+    acts = activity.timeline(os.path.splitext(os.path.basename(transcript))[0])
     timeline = []
-    total = usage_in(transcript, lo, hi, slug, timeline)
+    usage_in(transcript, lo, hi, slug, timeline)  # read from the transcript: used before the first record
+
+    def owns(t):
+        if acts and t >= acts[0][0]:
+            return activity.goal_at(acts, t) == goal
+        return slug_at(timeline, t) == slug
+    total = usage_where(transcript, lo, hi, owns)
     sub_dir = os.path.join(os.path.splitext(transcript)[0], "subagents")
     for p in glob.glob(os.path.join(sub_dir, "*.jsonl")):
         if datetime.datetime.fromtimestamp(os.path.getmtime(p)) < lo:
             continue
         first = next((t for t, _, _ in messages(p) if t), None)
-        if first and lo <= first <= hi and slug_at(timeline, first) == slug:
+        if first and lo <= first <= hi and owns(first):
             total += usage_in(p, lo, hi)
     return total
 

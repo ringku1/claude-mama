@@ -61,23 +61,19 @@ def _spend():
     return sp
 
 
-def session_slugs(transcript):
-    """Goals this session wrote to (ran them), in first-written order. Reading doesn't count."""
-    if not transcript or not os.path.isfile(transcript):
-        return []
-    return _spend().written_slugs(transcript)
-
-
-def session_slug(transcript):
-    """The goal this session last wrote to."""
+def session_goals(inp, store):
+    """Slugs of the goals in this store this session wrote to, most recent last. Recorded
+    by the skill's writers (activity.log); for older sessions, read from the transcript."""
+    sp = _spend()
+    sid = inp.get("session_id") or os.path.splitext(os.path.basename(inp.get("transcript_path", "")))[0]
+    recorded = [os.path.basename(g) for g in sp.activity.goals_for(sid) if os.path.dirname(g) == store]
     try:
-        data = open(transcript, encoding="utf-8", errors="ignore").read()
+        data = open(inp.get("transcript_path", ""), encoding="utf-8", errors="ignore").read()
+        read = sorted(sp.written_slugs(data), key=lambda s: data.rfind(s))
     except Exception:
-        return None
-    slugs = _spend().written_slugs(data)
-    if not slugs:
-        return None
-    return max(slugs, key=lambda s: data.rfind(s))
+        read = []
+    # recorded writes are the newest (the record started later), so they go last
+    return [s for s in read if s not in recorded] + recorded
 
 
 def waiting_on_background(plan):
@@ -167,10 +163,11 @@ def main():
     store = os.path.join(root, ".claude", "mama")
     all_goals = goals(store)
     open_goals = [g for g in all_goals if g["status"] in OPEN]
-    mine = session_slug(inp.get("transcript_path", ""))
+    my_slugs = session_goals(inp, store)
+    mine = my_slugs[-1] if my_slugs else None
     any_goal = next((g for g in all_goals if g["slug"] == mine), None)
     my_goal = any_goal if any_goal and any_goal["status"] in OPEN else None
-    touched = set(session_slugs(inp.get("transcript_path", ""))) if mode != "stop" else set()
+    touched = set(my_slugs) if mode != "stop" else set()
     mine_open = [g for g in open_goals if g["slug"] in touched]
     if not my_goal and len(mine_open) == 1:
         my_goal = mine_open[0]
