@@ -166,7 +166,14 @@ def guard_header(path, lines, updates):
                            capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit("REFUSED: goal can't close yet.\n" + r.stdout)
-    if st == "running" and header_value(lines, "status") != "running":
+    prev = header_value(lines, "status")
+    logp = os.path.join(os.path.dirname(os.path.abspath(path)), "log.md")
+    logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
+    if st == "waiting" and prev != "waiting" and os.path.exists(logp):
+        subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)
+    if st == "running" and prev in ("waiting", "paused") and os.path.exists(logp):
+        subprocess.run([sys.executable, logpy, logp, "E", "resume"], stdout=subprocess.DEVNULL)
+    if st == "running" and prev != "running":
         trello = header_value(lines, "trello")
         logp = os.path.join(os.path.dirname(os.path.abspath(path)), "log.md")
         log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""

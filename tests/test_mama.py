@@ -358,6 +358,67 @@ class CloseCheck(Base):
         self.assertIn("no ## Final report", out)
 
 
+class Lean(Base):
+    def cc(self):
+        sys.path.insert(0, S)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("cc", os.path.join(S, "close-check.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_quick_goal_closes_without_bookkeeping(self):
+        out = self.run_s("new-goal.py", self.store, "tiny", "fix", "t", "--quick")
+        g = out.splitlines()[0]
+        self.assertNotIn("Overview rules", out)
+        self.assertIn("mode: quick", self.read(self.plan(g)))
+        self.fill_steps(g)
+        p = self.plan(g)
+        self.run_s("plan-set.py", p, "--header", "base=n/a", "branch=n/a", "worktree=n/a", "pr=none",
+                   "deliverable commit=n/a", "trello=none", "budget=~0k / S")
+        self.run_s("plan-set.py", p, "S1", "status=running")
+        self.run_s("plan-set.py", p, "S1", "status=done")
+        self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
+        open(os.path.join(g, "overview.md"), "w").write("# Tiny\n\n**Status:** Done · 1 of 1\n")
+        self.assertIn("OK", self.run_s("close-check.py", g))  # no lessons, profile or patterns needed
+
+    def test_waiting_minutes(self):
+        log = ("E1 09:40 start\nQ1 09:46 base?\nD1 09:46 PR ask (tag: user, from patterns)\n"
+               "D2 09:57 main (tag: user)\nE2 10:00 waiting for the user\nE3 10:20 resume\n")
+        self.assertEqual(self.cc().waiting_minutes(log), 31)
+
+    def test_waiting_and_resume_are_logged(self):
+        g = self.new_goal()
+        self.fill_steps(g)
+        p = self.plan(g)
+        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous")
+        self.run_s("plan-set.py", p, "--header", "status=waiting")
+        self.run_s("plan-set.py", p, "--header", "status=running")
+        log = self.read(os.path.join(g, "log.md"))
+        self.assertRegex(log, r"E\d+ \d\d:\d\d waiting for the user\nE\d+ \d\d:\d\d resume\n")
+
+    def test_overview_problems(self):
+        cc = self.cc()
+        self.assertEqual(cc.overview_problems("# Goal\n\n**Status:** Working\nFiles stored in S3."), [])
+        out = cc.overview_problems("# Goal\nS4 is done, see store.go:185\n" + "line\n" * 70)
+        self.assertEqual(len(out), 3, out)
+
+    def test_commit_problems(self):
+        origin = os.path.join(self.tmp, "origin.git")
+        subprocess.run(["git", "init", "-q", "--bare", origin], check=True)
+        git = lambda *a: subprocess.run(["git", "-C", self.repo, *a], check=True, capture_output=True)
+        git("config", "user.email", "t@t"); git("config", "user.name", "t")
+        git("commit", "-q", "--allow-empty", "-m", "init"); git("branch", "-M", "main")
+        git("remote", "add", "origin", origin); git("push", "-q", "origin", "main")
+        git("checkout", "-q", "-b", "feat/x")
+        git("commit", "-q", "--allow-empty", "-m", "feat(api): add filter")
+        g = self.new_goal()
+        head = {"base": "main", "branch": "feat/x"}
+        self.assertEqual(self.cc().commit_problems(g, head), [])
+        git("commit", "-q", "--allow-empty", "-m", "fix: S3 per plan.md\n\nCo-Authored-By: Claude <x@y>")
+        self.assertEqual(len(self.cc().commit_problems(g, head)), 1)
+
+
 if __name__ == "__main__":
     import warnings
     warnings.simplefilter("ignore", ResourceWarning)

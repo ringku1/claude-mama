@@ -102,7 +102,7 @@ Read `rules/delivery.md`. Merge latest base, push, PR per the user's choice. Fin
 
 ## Quick mode
 
-For small tasks. Intake as usual (tracking files; worktree if code changes). Ask only: base branch, and PR choice if code changes. Plan 1-3 steps, one line each, proceed on approval. Same loop, commit and push rules.
+For small tasks (≈ under 30 minutes, one area). Intake with `new-goal.py … --quick`: mode is preset, the overview is 3 lines (task, status, done means / result). Skip research agents, `profile.md`, `lessons.md` and patterns bookkeeping — the close check doesn't ask for them. Ask only: base branch, and PR choice if code changes. Plan 1-3 steps, one line each, proceed on approval. Same loop, commit and push rules. If it grows past that, say so and offer to continue as a full goal (set `mode` to checkpointed/autonomous; the close check then asks for everything).
 
 ## Asking about the work
 
@@ -141,6 +141,8 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 
 - `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses `status=done` until `close-check.py` passes (criteria evidence, step times, placeholders, Trello, metrics, patterns, profile — or `E profile none`), refuses an end time before the start, refuses size L without a number, and reminds you of the Trello start comment.
 - Every write through `log.py` / `plan-set.py` / `new-goal.py` records which session worked on which goal (`~/.claude/mama/activity.log`, from `CLAUDE_CODE_SESSION_ID`). That record — not guessing — tells the hooks which goal is this session's and tells `spend.py` whose tokens count. Writing goal files any other way leaves the goal unowned and unmeasured.
+- Waiting for the user is measured, so estimates calibrate on active time: `plan-set --header status=waiting` logs `E waiting` and the switch back logs `E resume` on their own; questions are `Q` lines and their answers `D … tag: user`.
+- The close check also refuses commits with attribution lines or loop internals (mama, plan.md, step IDs), and the overview is checked (close and every turn) for internal IDs, file:line refs and length over one screen.
 - The Stop hook measures the goal's real token spend into the plan header at every turn end (`scripts/spend.py`), and blocks once, listing every problem, when your goal: is `running` at ≥70% of its budget; says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
 
 ## Writing state

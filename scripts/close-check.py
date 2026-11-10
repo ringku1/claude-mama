@@ -5,7 +5,7 @@ Usage: close-check.py <store>/<slug>
 Prints each missing item, then a prefilled metrics line (fill the `?` fields from memory
 of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
-import datetime, os, re, sys
+import datetime, os, re, subprocess, sys
 
 OPEN_STEP = {"todo", "running", "testing", "fixing", "blocked"}
 
@@ -19,6 +19,68 @@ def table(text, section):
     if len(rows) < 2:
         return [], []
     return rows[0], [r for r in rows[2:] if r and r[0]]
+
+
+def minutes(hhmm):
+    h, m = map(int, hhmm.split(":"))
+    return h * 60 + m
+
+
+def waiting_minutes(log):
+    """Minutes spent waiting for the user: a question (Q) or a stop for them (`E waiting`,
+    `checkpoint`, `asked`) until their next live answer (`D … tag: user`, not one settled
+    "from patterns") or `E resume`."""
+    lines = re.findall(r"^([EDFQ])\d+ (\d\d:\d\d) (.*)$", log, re.M)
+    total, since = 0, None
+    for kind, t, text in lines:
+        if since is None and (kind == "Q" or (kind == "E" and re.match(r"(waiting|checkpoint|ask)", text)) or
+                              (kind == "E" and "asked" in text)):
+            since = t
+        elif since is not None and ((kind == "D" and "tag: user" in text and "from patterns" not in text) or (kind == "E" and text.startswith("resume"))):
+            total += (minutes(t) - minutes(since)) % (24 * 60)
+            since = None
+    return total
+
+
+ID_RE = re.compile(r"\b[SDCQFE]\d+\b")
+
+
+def overview_problems(ov):
+    """The overview is the user's window: plain words, one screen."""
+    out = []
+    body = re.sub(r"`[^`]*`|\([^)]*\)\[|https?://\S+", "", ov)
+    ids = sorted(set(ID_RE.findall(body)) - {"S3"})  # S3 the storage service is a word, not a step
+    if ids:
+        out.append(f"overview.md shows internal IDs ({', '.join(ids[:4])}) — say it in plain words")
+    if re.search(r"\b[\w./-]+\.\w{1,4}:\d+\b", body):
+        out.append("overview.md has file:line references — those belong in log.md")
+    n = len([l for l in ov.splitlines() if l.strip()])
+    if n > 60:
+        out.append(f"overview.md is {n} lines — keep it to one screen (≤60), detail goes to plan/log")
+    return out
+
+
+def commit_problems(goal, head):
+    """This goal's commits: no attribution lines, no loop internals."""
+    base, branch = head.get("base", ""), head.get("branch", "")
+    if not base or not branch or base in ("—", "n/a") or branch in ("—", "n/a") or base == branch:
+        return []
+    branch = branch.split()[0]
+    try:
+        r = subprocess.run(["git", "-C", goal, "log", "--format=%H%x00%B%x01", f"origin/{base}..{branch}"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    bad = []
+    for entry in r.stdout.split("\x01"):
+        if "\x00" not in entry:
+            continue
+        sha, msg = entry.strip().split("\x00", 1)
+        if re.search(r"Co-Authored-By:|Generated with \[?Claude|\bmama\b|\bplan\.md\b|\b(step|criterion) [SC]\d+\b", msg, re.I):
+            bad.append(sha[:9])
+    return [f"commits carry attribution or loop internals ({', '.join(bad[:5])}) — reword before push"] if bad else []
 
 
 def main():
@@ -64,16 +126,17 @@ def main():
     if head.get("trello", "none") not in ("none", "—", "") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
         missing.append("Trello card linked but no `trello` log line")
 
+    quick = head.get("mode") == "quick"
     lessons_p = os.path.join(store, "lessons.md")
     lessons = open(lessons_p, encoding="utf-8").read() if os.path.exists(lessons_p) else ""
-    if not re.search(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} \S+ \| steps ", lessons, re.M):
+    if not quick and not re.search(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} \S+ \| steps ", lessons, re.M):
         missing.append(f"no metrics line for {slug} in lessons.md (draft below)")
 
     started = head.get("started", "")
     patterns_p = os.path.expanduser("~/.claude/mama/patterns.md")
     try:
         start_ts = datetime.datetime.strptime(started, "%Y-%m-%d %H:%M").timestamp()
-        if os.path.getmtime(patterns_p) < start_ts:
+        if not quick and os.path.getmtime(patterns_p) < start_ts:
             missing.append("patterns.md not updated during this goal (choices, size, real time/tokens)")
     except (ValueError, OSError):
         pass
@@ -81,7 +144,7 @@ def main():
     profile_p = os.path.join(store, "profile.md")
     try:
         start_ts = datetime.datetime.strptime(started, "%Y-%m-%d %H:%M").timestamp()
-        if os.path.getmtime(profile_p) < start_ts and not re.search(r"^E\d+ \S+ profile\b", log, re.M):
+        if not quick and os.path.getmtime(profile_p) < start_ts and not re.search(r"^E\d+ \S+ profile\b", log, re.M):
             missing.append("profile.md not refreshed — update facts this goal changed, or log `E profile none`")
     except (ValueError, OSError):
         pass
@@ -90,10 +153,12 @@ def main():
     ov = open(ov_p, encoding="utf-8").read() if os.path.exists(ov_p) else ""
     if "**Status:**" not in ov:
         missing.append("overview.md has no **Status:** line — write it from templates/overview.md")
-    if head.get("mode") != "quick" and "## Final report" not in ov:
+    if not quick and "## Final report" not in ov:
         missing.append("overview.md has no ## Final report (what was done, how verified, decisions, follow-ups)")
+    missing += overview_problems(ov)
+    missing += commit_problems(goal, head)
 
-    if not os.path.exists(profile_p):
+    if not quick and not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
 
     measured = None
@@ -111,17 +176,18 @@ def main():
             missing.append(f"lessons metrics says ~{ml.group(1)}{ml.group(2)} tokens but measured is {round(measured / 1000)}k — use the measured number")
 
     times = re.findall(r"^[EDFQ]\d+ (\d\d:\d\d) ", log, re.M)
-    mins = "?"
+    mins = "?m"
     if times:
         a, b = (datetime.datetime.strptime(t, "%H:%M") for t in (times[0], times[-1]))
-        mins = int((b - a).total_seconds() // 60) % (24 * 60)
+        total = int((b - a).total_seconds() // 60) % (24 * 60)
+        mins = f"{total}m (active {total - waiting_minutes(log)}m)"
     est = sum(int(m) for s in live for m in re.findall(r"(\d+)m", s[si["est"]]))
     att = sum(int(s[si["att"]] or 0) for s in live if s[si["att"]].isdigit())
     budget = head.get("budget", "?")
     size = budget.split("/")[-1].strip() if "/" in budget else "?"
     spent = f"{round(measured / 1000)}k" if measured else (budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?")
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
-            f"time est {est}m (sum of steps) / actual {mins}m | tokens est {size} / ~{spent} | "
+            f"time est {est}m (sum of steps) / actual {mins} | tokens est {size} / ~{spent} | "
             f"questions {len(re.findall(r'^Q', log, re.M))} (changed plan: ?) | fix rounds {att} | "
             f"checker findings ? | compactions {len(re.findall(r'^E\d+ \S+ compaction', log, re.M))} | "
             f"wrong assumptions ? | reversed decisions {len(re.findall(r'supersedes', log))}")
@@ -129,7 +195,7 @@ def main():
     for m in missing:
         print("MISSING:", m)
     print("METRICS:", line)
-    print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m / {size}, actual {mins}m / {spent} measured"')
+    print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m / {size}, actual {mins} / {spent} measured"')
     print("OK — ready to close" if not missing else f"NOT READY — {len(missing)} missing")
     sys.exit(1 if missing else 0)
 

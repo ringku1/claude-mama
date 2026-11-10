@@ -61,6 +61,15 @@ def _spend():
     return sp
 
 
+def _close_check():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "close-check.py")
+    spec = importlib.util.spec_from_file_location("mama_close_check", path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
 def session_goals(inp, store):
     """Slugs of the goals in this store this session wrote to, most recent last. Recorded
     by the skill's writers (activity.log); for older sessions, read from the transcript."""
@@ -199,6 +208,12 @@ def main():
                 "status (waiting / paused / blocked) — or, to wait on your own background work, log `E wait <what>` last.")
         if stale:
             problems.append("plan.md changed after overview.md — regenerate overview.md (the user's only window).")
+        elif g["status"] in OPEN:
+            try:
+                ov = open(os.path.join(os.path.dirname(g["plan"]), "overview.md"), encoding="utf-8").read()
+                problems += _close_check().overview_problems(ov)
+            except Exception:
+                pass
         if unlearned(g["plan"]):
             problems.append(
                 "A user decision was logged but nothing was learned since. For each answer that overrode your "
