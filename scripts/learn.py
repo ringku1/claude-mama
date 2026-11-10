@@ -64,6 +64,8 @@ def main():
             out = lines[[i for i, l in enumerate(lines) if l.startswith(f"- {text}")][-1]]
         else:
             i = find(lines, text)
+            if i is None and kind == "contra":
+                sys.exit(f"not found: {text!r}. To record what the user wants instead, use: learn.py seen \"<their preference>\"")
             old = lines.pop(i) if i is not None else None
             where = section_of(lines, i) if i is not None else WATCH
             if old and " — stated — " in old and kind != "stated":

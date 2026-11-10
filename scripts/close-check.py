@@ -86,6 +86,23 @@ def main():
     except (ValueError, OSError):
         pass
 
+    if not os.path.exists(profile_p):
+        missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
+
+    measured = None
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mama_spend", os.path.join(os.path.dirname(os.path.abspath(__file__)), "spend.py"))
+        sp = importlib.util.module_from_spec(spec); spec.loader.exec_module(sp)
+        measured = sp.measure(os.path.join(goal, "plan.md"))
+    except Exception:
+        pass
+    ml = re.search(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} .*?tokens est [^/|]*/ ~?([\d.]+)([kM])", lessons, re.M)
+    if measured and ml:
+        claimed = float(ml.group(1)) * (1000 if ml.group(2) == "M" else 1)
+        if abs(claimed - measured / 1000) > 0.25 * (measured / 1000) + 10:
+            missing.append(f"lessons metrics says ~{ml.group(1)}{ml.group(2)} tokens but measured is {round(measured / 1000)}k — use the measured number")
+
     times = re.findall(r"^[EDFQ]\d+ (\d\d:\d\d) ", log, re.M)
     mins = "?"
     if times:
@@ -95,7 +112,7 @@ def main():
     att = sum(int(s[si["att"]] or 0) for s in live if s[si["att"]].isdigit())
     budget = head.get("budget", "?")
     size = budget.split("/")[-1].strip() if "/" in budget else "?"
-    spent = budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?"
+    spent = f"{round(measured / 1000)}k" if measured else (budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?")
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
             f"time est {est}m (sum of steps) / actual {mins}m | tokens est {size} / ~{spent} | "
             f"questions {len(re.findall(r'^Q', log, re.M))} (changed plan: ?) | fix rounds {att} | "
@@ -105,6 +122,7 @@ def main():
     for m in missing:
         print("MISSING:", m)
     print("METRICS:", line)
+    print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m / {size}, actual {mins}m / {spent} measured"')
     print("OK — ready to close" if not missing else f"NOT READY — {len(missing)} missing")
     sys.exit(1 if missing else 0)
 

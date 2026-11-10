@@ -120,6 +120,10 @@ def guard_header(path, lines, updates):
         sys.exit("REFUSED: mode is not set. Ask the user with the approval question "
                  "(approve · checkpointed / approve · autonomous), then set mode=… with the status.")
     b = updates.get("budget", "")
+    cur = header_value(lines, "budget")
+    if b and "/" in b and "/" in cur:
+        # the spend part is measured by the Stop hook — keep it; only the size is yours to set
+        updates["budget"] = cur.split("/")[0].strip() + " / " + b.split("/", 1)[1].strip()
     if re.search(r"/\s*L\s*$", b):
         sys.exit("REFUSED: size L needs a number, e.g. budget='~0k / L 1.5M'")
     if st == "done":

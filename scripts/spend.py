@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure a goal's token spend from the session transcripts — no guessing.
 
-Usage: spend.py <transcript.jsonl> <plan.md> [--write]
+Usage: spend.py [<transcript.jsonl>] <plan.md> [--write]   (transcript found automatically if omitted)
 Counts, between the goal's `started:` time and its last log line (or now, if open):
   main thread + every subagent of this session: input + cache-creation + output tokens per
   API message (cache reads excluded: they re-read context already paid for).
@@ -100,11 +100,49 @@ def ceiling(size):
     return None
 
 
-def main():
-    if len(sys.argv) < 3:
-        sys.exit(__doc__)
-    transcript, plan = sys.argv[1], sys.argv[2]
-    lo, hi, size = window(plan)
+def find_transcript(plan):
+    """The session transcript that worked on this goal (newest one naming its folder)."""
+    lo, _, _ = window(plan)
+    needle = os.path.dirname(os.path.abspath(plan)) + "/"
+    best = None
+    for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
+        mt = os.path.getmtime(p)
+        if datetime.datetime.fromtimestamp(mt) < lo or (best and mt <= best[0]):
+            continue
+        try:
+            with open(p, encoding="utf-8", errors="ignore") as f:
+                data = f.read()
+        except OSError:
+            continue
+        if needle in data and ran_mama(data):
+            best = (mt, p)
+    return best[1] if best else None
+
+
+def ran_mama(data):
+    """True if the user typed /mama in this session (not just text mentioning it)."""
+    for line in data.splitlines():
+        if "command-name>/mama<" not in line:
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if r.get("type") != "user":
+            continue
+        c = r.get("message", {}).get("content")
+        texts = [c] if isinstance(c, str) else [b.get("text", "") for b in c or [] if isinstance(b, dict) and b.get("type") == "text"]
+        if any("<command-name>/mama</command-name>" in t for t in texts):
+            return True
+    return False
+
+
+def measure(plan, transcript=None):
+    """Tokens this goal spent (main thread + its subagents), or None if no transcript found."""
+    transcript = transcript or find_transcript(plan)
+    if not transcript:
+        return None
+    lo, hi, _ = window(plan)
     slug = os.path.basename(os.path.dirname(os.path.abspath(plan)))
     timeline = []
     total = usage_in(transcript, lo, hi, slug, timeline)
@@ -115,6 +153,18 @@ def main():
         first = next((t for t, _, _ in messages(p) if t), None)
         if first and lo <= first <= hi and slug_at(timeline, first) == slug:
             total += usage_in(p, lo, hi)
+    return total
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    args = [a for a in sys.argv[1:] if a != "--write"]
+    transcript, plan = (args[0], args[1]) if len(args) > 1 else (None, args[0])
+    _, _, size = window(plan)
+    total = measure(plan, transcript)
+    if total is None:
+        sys.exit("no transcript found for this goal")
     k = round(total / 1000)
     c = ceiling(size)
     pct = round(100 * total / c) if c else -1

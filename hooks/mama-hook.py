@@ -137,17 +137,10 @@ def measure_budget(plan, transcript):
     spec = importlib.util.spec_from_file_location("mama_spend", path)
     sp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sp)
-    lo, hi, size = sp.window(plan)
-    slug = os.path.basename(os.path.dirname(plan))
-    timeline = []
-    total = sp.usage_in(transcript, lo, hi, slug, timeline)
-    import glob
-    for p in glob.glob(os.path.join(os.path.splitext(transcript)[0], "subagents", "*.jsonl")):
-        if datetime.datetime.fromtimestamp(os.path.getmtime(p)) < lo:
-            continue
-        first = next((t for t, _, _ in sp.messages(p) if t), None)
-        if first and lo <= first <= hi and sp.slug_at(timeline, first) == slug:
-            total += sp.usage_in(p, lo, hi)
+    total = sp.measure(plan, transcript)
+    if total is None:
+        return None
+    _, _, size = sp.window(plan)
     st = os.stat(plan)
     text = open(plan, encoding="utf-8").read()
     new = re.sub(r"(budget: )~?[^/|\n]*(/)", rf"\g<1>~{round(total / 1000)}k \g<2>", text, count=1)
@@ -191,7 +184,7 @@ def main():
             return  # a goal closed earlier — don't nag about it in later, unrelated turns
         stale = overview_stale(g["plan"])
         pct = None
-        if g["status"] in OPEN:
+        if True:  # open goals, and goals closed within the last hour
             try:
                 pct = measure_budget(g["plan"], inp.get("transcript_path", ""))
             except Exception:
