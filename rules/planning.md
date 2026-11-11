@@ -9,9 +9,10 @@ Write criteria before steps. Each must be checkable by a command, a test, or a c
 - **Walking skeleton first**: the first build step is a thin end-to-end slice (one endpoint → one screen), not a full layer. It exposes design mistakes while they're cheap.
 - **Size**: one step = one dev + test cycle. Too small wastes agent setup → batch it. Too large fails slowly → split it.
 - **Kinds**: build · fix · research · document · decide · release (see `rules/loop.md`).
-- **Ownership**: each step lists the files/dirs it owns. Parallel steps must not overlap — overlap means add a dependency.
+- **Width — plan for parallel work.** The user wants speed, so split the work into as many independent steps as it allows, each owning a disjoint area: per endpoint or module on the API, per screen or component on the web, tests, docs, deliverables. Put a thin **contract step** first when parallel steps share an interface (shared types, the API shape, the migration) — the lead writes it in minutes and every step after it runs at once. Real run: two web agents on disjoint files, after the lead wrote the shared types, halved wall time with no conflicts. Tests for a criterion can be written by a test agent while the build runs. A chain is serial only for a real dependency, never for convenience.
+- **Ownership**: each step lists the files/dirs it owns. Parallel steps must not overlap — split the files differently or, if they truly must, add a dependency. Generated files (OpenAPI spec, route tree, i18n output) belong to one step, or the lead regenerates once after the parallel steps land.
 - **Verify**: each step names its narrowest proof, from `profile.md` commands. Mark slow verifies (full build, e2e).
-- **Critical path**: order so the longest dependency chain and slow-verify steps start earliest.
+- **Critical path**: order so the longest dependency chain and slow-verify steps start earliest. `plan-set.py` prints the critical path, the sum and how many steps can run at once — a wide plan has a critical path well under the sum.
 - **Confidence**: H/M/L per step. L steps get research or a question before building.
 - **Deliverables**: each is a `document` step with its output path.
 - **Code review goals**: use the built-in `/code-review` skill (its effort level = the depth the user picked) for the review step, not hand-briefed reviewer agents — on PR #112 it found 10 real rule breaks that a 4-reviewer custom review (1.06M tokens) had missed. Add custom reviewers only for an area it doesn't cover (e.g. design match).
@@ -25,6 +26,7 @@ Check, fix, then present:
 - [ ] No dependency cycles; no ownership overlap between parallel steps
 - [ ] Every step has a verify that actually exercises its criterion
 - [ ] Steps are right-sized; skeleton first; critical path early
+- [ ] As wide as the work allows: every dependency is real; a long chain that could split is split; a contract step unblocks parallel work
 - [ ] No step depends on an unconfirmed `assumed` decision
 - [ ] Precedent followed, or a decision says why not
 - [ ] Nothing in scope that the goal didn't ask for (park it)

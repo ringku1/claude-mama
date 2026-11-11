@@ -51,6 +51,32 @@ def critical_path(steps, left=False):
     return max((chain(s) for s in live), default=0)
 
 
+def width(steps, left=False):
+    """How many steps can run at once if each starts as soon as its deps finish."""
+    live = {s[0]: s for s in steps if s[3] not in SKIP and not (left and s[3] == "done")}
+    finish, active = {}, set()
+
+    def end(sid):
+        if sid not in finish:
+            if sid in active:
+                return 0
+            active.add(sid)
+            start = max((end(d) for d in expand(live[sid][1]) if d in live), default=0)
+            finish[sid] = (start, start + max(minutes(live[sid][2]), 1))
+            active.discard(sid)
+        return finish[sid][1]
+
+    for s in live:
+        end(s)
+    edges = sorted([(a, 1) for a, _ in finish.values()] + [(b, -1) for _, b in finish.values()],
+                   key=lambda e: (e[0], e[1]))
+    now = best = 0
+    for _, d in edges:
+        now += d
+        best = max(best, now)
+    return best
+
+
 def total(steps, left=False):
     return sum(minutes(s[2]) for s in steps if s[3] not in SKIP and not (left and s[3] == "done"))
 
@@ -71,7 +97,7 @@ def summary(plan_text):
     s = steps_of(plan_text)
     if not any(minutes(x[2]) for x in s):
         return ""
-    return (f"estimate: critical path {critical_path(s)}m (sum {total(s)}m) · "
+    return (f"estimate: critical path {critical_path(s)}m (sum {total(s)}m, up to {width(s)} at once) · "
             f"left {critical_path(s, left=True)}m — runs typically take ~⅔ of the critical path (rules/planning.md)")
 
 

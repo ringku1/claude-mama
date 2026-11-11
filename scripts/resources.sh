@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Prints how many agents this goal may run now:
-#   min(cores/2 (halved if busy), free RAM GB / 1.5, 5, ready_steps) - steps other goals are running
+# Prints how many agents this goal may run at once (the skill dispatches up to these):
+#   limit      — agents that edit and build: min(cores/2 (halved if busy), free RAM GB / 1.5, 8, ready)
+#                minus steps other goals are running
+#   read_limit — read-only agents (research, review, test design; no local load): min(8, ready)
 # Usage: resources.sh <ready_steps> [store_dir] [own_slug]
 ready=${1:-5}
 store=${2:-}
@@ -25,6 +27,8 @@ if [ -n "$store" ] && [ -d "$store" ]; then
   done
 fi
 
-limit=$(printf '%s\n' "$by_cpu" "$by_ram" 5 "$ready" | sort -n | head -1)
+CAP=8
+limit=$(printf '%s\n' "$by_cpu" "$by_ram" "$CAP" "$ready" | sort -n | head -1)
 limit=$(( limit - others )); [ "$limit" -lt 1 ] && limit=1
-echo "limit=$limit cores=$cores free_ram_gb=$free_gb load=$load other_goals_running_steps=$others"
+read_limit=$(printf '%s\n' "$CAP" "$ready" | sort -n | head -1); [ "$read_limit" -lt 1 ] && read_limit=1
+echo "limit=$limit read_limit=$read_limit cores=$cores free_ram_gb=$free_gb load=$load other_goals_running_steps=$others"

@@ -15,17 +15,18 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 ## Sizing: who does the work
 
-- **Small** — mechanical, a few files, proof is a command (≈ under 50 changed lines): do it in the main thread; the verify command is the proof. Read your diff once before committing.
-- **Large or judgement-heavy** — design choices, many files, or a proof that needs judgement ("does this test cover the criterion?"): dev agent builds, a separate test agent checks.
+- **Tiny** — a handful of tool calls (a one-line fix, a rename, a config value): do it in the main thread while agents run; the verify command is the proof. Read your diff once before committing.
+- **Everything else** runs in its own agent, in parallel with the other ready steps (`rules/agents.md`) — mechanical steps included, so the main thread stays free to orchestrate.
+- **Judgement-heavy** — design choices or a proof that needs judgement ("does this test cover the criterion?"): a dev agent builds and a separate test agent checks; the test agent can write the tests from the criterion while the build runs.
 - Claims in a deliverable (a doc someone will read) get the citation checker — a wrong citation misleads more than a missing one. Internal findings don't: you read the code, that's the proof.
 
 ## Cycle
 
-1. **Dispatch** ready steps (deps passed — not just started; owners free) up to the limit from `${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready>`. Status `running`; log `dispatch`.
+1. **Dispatch** every ready step (deps passed — not just started; owners free) at once, up to the limits from `${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready> <store> <slug>` — one message, several background Agent calls. Status `running`; log one `dispatch` line naming them all. Refill as each returns: a finished step frees a slot for the next ready one.
 2. **Self-check**: the worker runs the cheapest checks on touched files (format, typecheck) before handing off.
-3. **Verify**: run the step's verify (and the checker, if the step needs one). Status `testing`.
+3. **Verify**: run the step's verify (and the checker, if the step needs one) while the other agents keep working; independent verifies run as parallel background commands, heavy ones queue on the lock. Status `testing`.
 4. **Pass** → record evidence and covered files in notes, status `done`, `end=now`, commit (`rules/delivery.md`), log `pass` + `commit`. When this completes a criterion's proof, fill its `evidence` cell (`plan-set.py <plan> C2 "evidence=..."`) — pre-delivery reads evidence from the Criteria table, not from the overview.
-5. **Fail** → focused fix: the failing output (trimmed), the file, the expected behaviour. Status `fixing`, att +1. Trivial fixes (a checker's nit, a typo) are made inline and re-proven by the command only — no new checker round.
+5. **Fail** → focused fix: the failing output (trimmed), the file, the expected behaviour — failures in different areas get parallel fix agents. Status `fixing`, att +1. Trivial fixes (a checker's nit, a typo) are made inline and re-proven by the command only — no new checker round.
 6. **Flaky?** A failure that doesn't reproduce on one rerun is logged and not counted.
 7. **Cap**: after 2 failed fix rounds, rethink — re-read decisions in force, check `lessons.md`, consider another approach. Same error twice = rethink, never a blind retry. Third failure → `blocked`, reason in log and overview "Needs your input"; continue other steps.
 

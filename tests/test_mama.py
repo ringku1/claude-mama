@@ -560,6 +560,14 @@ class PlanAndOverview(Base):
         self.run_s("plan-set.py", p, "S1", "status=blocked")
         self.assertIn("regenerate overview.md", json.loads(hook("stop"))["reason"])
 
+    def test_resource_limits(self):
+        r = subprocess.run(["bash", os.path.join(S, "resources.sh"), "20"], capture_output=True, text=True)
+        m = dict(re.findall(r"(\w+)=([\d.]+)", r.stdout))
+        self.assertEqual(m["read_limit"], "8")
+        self.assertTrue(1 <= int(m["limit"]) <= 8)
+        r = subprocess.run(["bash", os.path.join(S, "resources.sh"), "2"], capture_output=True, text=True)
+        self.assertIn("read_limit=2", r.stdout)
+
     def test_critical_path_not_sum(self):
         sys.path.insert(0, S)
         import estimate
@@ -570,10 +578,14 @@ class PlanAndOverview(Base):
         self.assertEqual(estimate.total(steps), 75)
         self.assertEqual(estimate.critical_path(steps, left=True), 35)
         self.assertEqual(estimate.minutes("1h 20m"), 80)
+        self.assertEqual(estimate.width(steps), 3)  # S1, S3 and S7 (its cycle with S6 cut) at once
+        wide = [("S1", "—", "5m", "todo")] + [(f"S{i}", "S1", "20m", "todo") for i in range(2, 7)]
+        self.assertEqual((estimate.width(wide), estimate.critical_path(wide)), (5, 25))
+        self.assertEqual(estimate.width([("S1", "—", "5m", "todo"), ("S2", "S1", "5m", "todo")]), 1)
         g = self.new_goal()
         self.fill_steps(g)
         out = self.run_s("plan-set.py", self.plan(g), "S+", "title=t", "verify=v", "est=20m")
-        self.assertIn("estimate: critical path 20m (sum 30m)", out)
+        self.assertIn("estimate: critical path 20m (sum 30m, up to 2 at once)", out)
         cc = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True,
                             text=True, env=self.env())
         self.assertIn("time est 20m critical path (sum 30m)", cc.stdout)

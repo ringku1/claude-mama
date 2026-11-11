@@ -4,19 +4,29 @@
 
 Every subagent: `model: "opus"`, `effort: "medium"`. This is the user's explicit instruction, so set both on every spawn. Don't switch to cheaper models to save tokens — save tokens with the rules below instead.
 
-## When to spawn
+## When to spawn — parallel by default
 
-Spawn only when the work is big enough to repay an agent's setup (it reads files from scratch — a checker costs tens of thousands of tokens). Do it yourself when it's a handful of tool calls. Batch tiny steps into one agent. Parallel research is worth it when questions are independent; one targeted search is not. Sizing for builds and when checkers are required: `rules/loop.md`.
+The user wants work done fast, so parallel agents are the default:
+
+- **Every step runs in its own agent**, and every ready step goes out at once — one message with several Agent calls, in the background. As each returns, verify it and dispatch the next ready step right away (no waves).
+- **You orchestrate.** While agents run: verify finished steps, write the next briefs, commit, record state. Build inline only what is a handful of tool calls (a one-line fix, a rename) — never something that holds up a dispatch.
+- **Fan out inside a step too**: independent research questions, review areas or dimensions, test suites (API and web as parallel background commands), and fixes for failures in different areas each get their own agent or command.
+- **What doesn't fan out**: a step whose deps aren't done, two edits to the same files, and verifies under the heavy lock (they queue — keep them short).
+- Batch steps into one agent only when they are tiny and touch the same files. Sizing for builds and when checkers are required: `rules/loop.md`.
 
 ## Concurrency
 
-Before each dispatch wave: `bash ${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready steps> <store> <own slug>` → prints `limit=N` = min(ready, cores ÷ 2 (halved if load is high), free RAM GB ÷ 1.5, 5) minus steps other goals are running.
+Before dispatching: `bash ${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready steps> <store> <own slug>` → prints
+- `limit=N` for agents that edit and build (they run compilers and tests): min(ready, cores ÷ 2 (halved if load is high), free RAM GB ÷ 1.5, 8) minus steps other goals are running;
+- `read_limit=M` for read-only agents (research, review, test design): min(ready, 8) — they put no load on the machine.
+
+Fill both up to their limits.
 
 - Heavy verifies (full build, e2e) and anything touching shared services run one at a time across all goals: `flock <store>/.heavy.lock <cmd>`.
 - Read-only agents share the working tree.
-- All agents of a goal work in the goal's worktree (give the absolute path in the brief). One editing agent at a time can work there directly.
-- Exception: parallel editing agents may share the goal worktree when their `owns` are disjoint top-level areas (e.g. `apps/api/**` vs `apps/web/**`), neither commits, and you commit per area after each verify — cheaper than a step worktree that needs a fresh install. Log it as a decision.
-- Otherwise, parallel editing agents each get a step worktree branched from the goal branch — `git -C <goal worktree> worktree add <goal worktree>.<step> -b <branch>-<step>` — never the Agent tool's own worktree isolation (it branches from the session's checkout, not the goal branch). Merge each into the goal branch in planned order; you resolve conflicts; remove the step worktree and branch after merging.
+- All agents of a goal work in the goal's worktree (give the absolute path in the brief).
+- **Parallel editing agents share it** whenever their `owns` are disjoint files or directories, at any depth (two modules, two screens, a test file next to the code it tests). No agent commits; each runs only its own area's checks; you commit each step with `git add <its owns>` after its verify. Generated files have one owner, or you regenerate them once after the parallel steps land. A typecheck error in files another agent owns isn't the agent's to fix: it reports it. Sharing is cheaper than a step worktree, which needs a fresh install.
+- Only when owns must overlap, or a step needs its own build state, parallel editing agents each get a step worktree branched from the goal branch — `git -C <goal worktree> worktree add <goal worktree>.<step> -b <branch>-<step>` — never the Agent tool's own worktree isolation (it branches from the session's checkout, not the goal branch). Merge each into the goal branch in planned order; you resolve conflicts; remove the step worktree and branch after merging.
 
 ## Brief (what an agent receives) — ≤ ~300 words
 

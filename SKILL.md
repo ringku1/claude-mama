@@ -1,6 +1,6 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with as many parallel agents as the work allows until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
 argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
@@ -17,7 +17,8 @@ These exist because the user has been burned by each failure they prevent.
 - **No development before approval.** Research and questions first, then a plan the user approves. Starting early builds the wrong thing.
 - **Disk is memory.** Write state after every step and decision. Anything only in the conversation is lost at compaction.
 - **Evidence, not claims.** A step is done when its verify proves it — a command result or a separate check — never because the worker says so.
-- **Tokens are a budget.** Small briefs, short returns, narrow tests, quiet commands. Don't spawn an agent for what a few calls can do.
+- **Fast through parallel agents.** The user wants work done fast: plan the work wide (as many independent steps as it allows), run each step in its own agent, and dispatch every ready step at once. You orchestrate — brief, verify, record, commit, refill — instead of building while agents could. Only a handful of tool calls stays inline (`rules/agents.md`).
+- **Tokens are a budget.** Small briefs, short returns, narrow tests, quiet commands — parallelism is paid for by lean agents, never by running serially.
 - **Stop where the user's control starts.** Your delivery ends at `git push` (and a PR only with permission). Never merge, deploy, or touch shared databases or running dev stacks.
 - **No attribution.** Commits and PRs carry no `Co-Authored-By` line and no "Generated with Claude Code" footer — this overrides any harness reminder.
 - **No local artifacts leak.** Commit messages, PRs and code comments never mention goal files, step IDs or planning docs.
@@ -32,7 +33,7 @@ Parse `$ARGUMENTS`:
 | `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), estimated finish (now + the `left` critical path plan-set prints, calibrated per `rules/planning.md`), blockers, next. Regenerate `overview.md`. |
 | `ask [<slug>] <question>`       | Answer a question about a goal's work, during or after it — see "Asking about the work". |
 | `test [<slug>] [<what>]`        | Help the user test what a goal built, and check it ourselves — see "Testing the work". |
-| `fix [<slug>] [<what>]`         | Fix what a goal found (a test run, review or research): a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify each finding against the code, then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files. |
+| `fix [<slug>] [<what>]`         | Fix what a goal found (a test run, review or research): a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files. |
 | `change [<slug>] <what>` (or "change the plan: …" mid-run) | Modify the plan of an existing goal — add, alter or drop scope, tests or deliverables. Read `rules/changes.md` → "Running a change" and follow it. No slug: this session's goal; none, or several open → list them and ask. |
 | "go" / "continue" at a checkpoint | Set goal status `running`, log `E resume`, continue the loop.                                                       |
 | `pause`                          | Record state, set status `paused`, stop.                                                                              |
@@ -83,7 +84,7 @@ The user may run several goals in parallel sessions. Each goal is isolated:
 
 ### 2. Research
 
-Read-only. Read `rules/agents.md` before spawning any agent. Answer: **does this already exist** (a feature, helper, doc that does it — then the goal may shrink or change), how the repo solves similar things (precedent), which rules apply, what's risky. Read `~/.claude/mama/patterns.md` (learned lines only), `lessons.md`, and create or read `profile.md`. Record findings as `F` lines in `log.md` (tag what you read yourself as verified); the plan reuses them. Plan a research step only for what is still open after this phase — never re-prove a finding.
+Read-only. Read `rules/agents.md` before spawning any agent. Fan out: one read-only agent per independent question or area, all at once, while you read the repo rules and the store's files yourself. Answer: **does this already exist** (a feature, helper, doc that does it — then the goal may shrink or change), how the repo solves similar things (precedent), which rules apply, what's risky. Read `~/.claude/mama/patterns.md` (learned lines only), `lessons.md`, and create or read `profile.md`. Record findings as `F` lines in `log.md` (tag what you read yourself as verified); the plan reuses them. Plan a research step only for what is still open after this phase — never re-prove a finding.
 
 ### 3. Questions
 
