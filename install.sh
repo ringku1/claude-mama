@@ -3,13 +3,15 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash
 #
-# It installs what's missing (git, Python 3.8+), downloads mama to ~/.claude/skills/mama,
+# It installs what's missing (git, Python 3.8+), downloads mama to ~/.claude/skills/mama
+# ($CLAUDE_CONFIG_DIR/skills/mama when that is set),
 # and registers its hooks with Claude Code. Run the same line again to update.
 # Remove:  curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash -s -- --uninstall
 set -euo pipefail
 
 REPO="${MAMA_REPO:-https://github.com/ringku1/claude-mama.git}"
-DEST="$HOME/.claude/skills/mama"
+DEST="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/mama"
+export GIT_TERMINAL_PROMPT=0  # a bad URL fails instead of asking for a password
 
 say() { printf '%s\n' "mama: $*"; }
 fail() { printf '%s\n' "mama: $*" >&2; exit 1; }
@@ -68,7 +70,13 @@ fi
 mkdir -p "$(dirname "$DEST")"
 if [ -d "$DEST/.git" ]; then
   say "updating"
-  git -C "$DEST" pull --ff-only -q || fail "couldn't update $DEST (local changes?). Remove it and paste the command again."
+  if [ -n "$(git -C "$DEST" status --porcelain 2>/dev/null)" ]; then
+    fail "files in $DEST were changed locally, so it wasn't updated. Run  git -C \"$DEST\" stash  (or remove the folder), then paste the command again."
+  fi
+  git -C "$DEST" fetch -q 2>/dev/null \
+    || fail "couldn't reach $(git -C "$DEST" remote get-url origin 2>/dev/null || echo "$REPO") — check your internet connection and paste the command again."
+  git -C "$DEST" merge -q --ff-only '@{upstream}' >/dev/null 2>&1 \
+    || fail "$DEST has local commits (or is off its branch), so it wasn't updated. Remove the folder (or reset it), then paste the command again."
 else
   if [ -e "$DEST" ] || [ -L "$DEST" ]; then
     old="$DEST.old-$(date +%Y%m%d%H%M%S)"
@@ -76,8 +84,16 @@ else
     say "moved the previous $DEST to $old"
   fi
   say "downloading"
-  git clone -q "$REPO" "$DEST"
+  if ! err=$(git clone -q "$REPO" "$DEST" 2>&1); then
+    rm -rf "$DEST"
+    case "$err" in
+      *"not found"*|*"does not exist"*|*"Authentication"*) fail "couldn't download $REPO — it doesn't exist or isn't public." ;;
+      *) fail "couldn't download $REPO — check your internet connection and paste the command again." ;;
+    esac
+  fi
 fi
 
-"$PY" "$DEST/install.py" >/dev/null
+if ! out=$("$PY" "$DEST/install.py" 2>&1); then
+  fail "registering the hooks failed: $(printf '%s\n' "$out" | tail -n 1 | sed 's/^mama: //')"
+fi
 say "ready. Restart Claude Code, open your project, and type:  /mama <what you want done>"

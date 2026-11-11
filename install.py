@@ -4,12 +4,15 @@
   python3 install.py            install / update   (Windows: py install.py)
   python3 install.py --remove   remove the hooks; the skill folder and your goal files stay
 
-1. Puts the skill at ~/.claude/skills/mama (%USERPROFILE%\\.claude\\skills\\mama on Windows):
+Claude's folder is $CLAUDE_CONFIG_DIR when set, else ~/.claude (%USERPROFILE%\\.claude on Windows).
+
+1. Puts the skill at <claude folder>/skills/mama:
    a symlink to this folder (a directory junction on Windows), or nothing if it's already there.
-2. Registers its three hooks (PreCompact, SessionStart on compact, Stop) in ~/.claude/settings.json
+2. Registers its three hooks (PreCompact, SessionStart on compact, Stop) in <claude folder>/settings.json
    in exec form — this Python's absolute path plus the hook script's — so no shell, `~` or
-   `python3`-vs-`python` differences matter. Other settings are kept; the old file is saved
-   as settings.json.bak. Safe to re-run.
+   `python3`-vs-`python` differences matter. Other settings are kept; the first time, the original is saved
+   as settings.json.bak (never overwritten later). An unreadable settings.json is left untouched.
+   Safe to re-run.
 """
 import json
 import os
@@ -24,7 +27,8 @@ for _stream in (sys.stdout, sys.stderr):  # print "—" safely on a cp1252 Windo
         pass
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-CLAUDE = os.path.normpath(os.path.join(os.path.expanduser("~"), ".claude"))  # one separator style (mklink reads "/x" as a switch)
+CLAUDE = os.path.abspath(  # one separator style (mklink reads "/x" as a switch)
+    os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude")))
 DEST = os.path.join(CLAUDE, "skills", "mama")
 SETTINGS = os.path.join(CLAUDE, "settings.json")
 EVENTS = {"PreCompact": ("precompact", None), "SessionStart": ("sessionstart", "compact"), "Stop": ("stop", None)}
@@ -52,9 +56,15 @@ def is_mama(entry):
 def update_hooks(remove):
     settings = {}
     if os.path.exists(SETTINGS):
-        with open(SETTINGS, encoding="utf-8") as f:
-            settings = json.load(f)
-        shutil.copy2(SETTINGS, SETTINGS + ".bak")
+        try:
+            with open(SETTINGS, encoding="utf-8") as f:
+                settings = json.load(f)
+        except (OSError, ValueError) as e:
+            sys.exit(f"mama: can't read {SETTINGS} ({e}) — fix or move it, then run this again. Nothing was changed.")
+        if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict):
+            sys.exit(f"mama: {SETTINGS} is not a JSON object with an object \"hooks\" — fix it, then run this again. Nothing was changed.")
+        if not os.path.exists(SETTINGS + ".bak"):  # keep the user's original, not a copy of our last edit
+            shutil.copy2(SETTINGS, SETTINGS + ".bak")
     hooks = settings.setdefault("hooks", {})
     hook = os.path.join(DEST, "hooks", "mama-hook.py")
     for event, (mode, matcher) in EVENTS.items():
@@ -85,9 +95,12 @@ def main():
     if not shutil.which("git"):
         sys.exit("mama needs git on PATH")
     remove = "--remove" in sys.argv[1:]
-    if not remove:
-        link_skill()
-    update_hooks(remove)
+    try:
+        if not remove:
+            link_skill()
+        update_hooks(remove)
+    except OSError as e:
+        sys.exit(f"mama: {e}")
     if not remove:
         print("done — restart Claude Code, then type /mama <your goal> in a git repo.")
         if os.name == "nt":

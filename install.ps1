@@ -3,16 +3,25 @@
 #   irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
 #
 # It installs what's missing (Git for Windows, Python 3.8+) with winget, downloads mama to
-# %USERPROFILE%\.claude\skills\mama, and registers its hooks with Claude Code.
+# %USERPROFILE%\.claude\skills\mama (%CLAUDE_CONFIG_DIR%\skills\mama when that is set), and registers its hooks with Claude Code.
 # Run the same line again to update.
 # Remove:  $env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
 
 $Repo = if ($env:MAMA_REPO) { $env:MAMA_REPO } else { 'https://github.com/ringku1/claude-mama.git' }
-$Dest = Join-Path $env:USERPROFILE '.claude\skills\mama'
+$ClaudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+$Dest = Join-Path $ClaudeDir 'skills\mama'
+$env:GIT_TERMINAL_PROMPT = '0'  # a bad URL fails instead of asking for a password
 
 function Say($msg) { Write-Host "mama: $msg" }
 function Fail($msg) { throw "mama: $msg" }  # throw, not exit: exit would close the window under `irm | iex`
+
+# Windows PowerShell 5.1 turns a native command's stderr into a terminating error under 'Stop';
+# run git / python with 'Continue' so a failure reaches our own message, not a raw error record.
+function Quiet([scriptblock]$Block) {
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { (& $Block 2>&1 | Out-String) } finally { $ErrorActionPreference = $old }
+}
 
 function Refresh-Path {
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
@@ -46,7 +55,7 @@ function Install-Package($id, $name) {
 if ($env:MAMA_UNINSTALL) {
     $py = Find-Python
     if (Test-Path $Dest) {
-        if ($py) { & $py (Join-Path $Dest 'install.py') --remove | Out-Null }
+        if ($py) { Quiet { & $py (Join-Path $Dest 'install.py') --remove } | Out-Null }
         Remove-Item -Recurse -Force $Dest
     }
     Remove-Item Env:MAMA_UNINSTALL
@@ -63,8 +72,12 @@ if (-not $py) { Fail 'Python still is not available - open a new PowerShell wind
 New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
 if (Test-Path (Join-Path $Dest '.git')) {
     Say 'updating'
-    git -C $Dest pull --ff-only -q
-    if ($LASTEXITCODE -ne 0) { Fail "couldn't update $Dest (local changes?). Remove it and paste the command again." }
+    $changed = Quiet { git -C $Dest status --porcelain }
+    if ($LASTEXITCODE -eq 0 -and $changed.Trim()) { Fail "files in $Dest were changed locally, so it wasn't updated. Run  git -C `"$Dest`" stash  (or remove the folder), then paste the command again." }
+    Quiet { git -C $Dest fetch -q } | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "couldn't reach the mama repository - check your internet connection and paste the command again." }
+    Quiet { git -C $Dest merge -q --ff-only '@{upstream}' } | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "$Dest has local commits (or is off its branch), so it wasn't updated. Remove the folder (or reset it), then paste the command again." }
 } else {
     if (Test-Path $Dest) {
         $old = "$Dest.old-$(Get-Date -Format yyyyMMddHHmmss)"
@@ -72,10 +85,17 @@ if (Test-Path (Join-Path $Dest '.git')) {
         Say "moved the previous $Dest to $old"
     }
     Say 'downloading'
-    git clone -q $Repo $Dest
-    if ($LASTEXITCODE -ne 0) { Fail 'download failed - check your internet connection and paste the command again.' }
+    $err = Quiet { git clone -q $Repo $Dest }
+    if ($LASTEXITCODE -ne 0) {
+        if (Test-Path $Dest) { Remove-Item -Recurse -Force $Dest }
+        if ($err -match 'not found|does not exist|Authentication') { Fail "couldn't download $Repo - it doesn't exist or isn't public." }
+        Fail "couldn't download $Repo - check your internet connection and paste the command again."
+    }
 }
 
-& $py (Join-Path $Dest 'install.py') | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail ('registering the hooks failed - run: py "' + (Join-Path $Dest 'install.py') + '"') }
+$out = Quiet { & $py (Join-Path $Dest 'install.py') }
+if ($LASTEXITCODE -ne 0) {
+    $last = (($out.Trim() -split "`r?`n") | Select-Object -Last 1) -replace '^mama: ', ''
+    Fail "registering the hooks failed: $last"
+}
 Say 'ready. Restart Claude Code, open your project, and type:  /mama <what you want done>'

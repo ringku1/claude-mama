@@ -7,6 +7,7 @@ Usage: lock.py <lockfile> <command> [args...]
 Waits until no other lock.py holds <lockfile>, runs the command, exits with its exit code.
 """
 import os
+import shutil
 import subprocess
 import sys
 
@@ -20,10 +21,10 @@ def main():
     path, cmd = sys.argv[1], sys.argv[2:]
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "a+") as f, fileio.locked(f):
-        try:
-            code = subprocess.call(cmd)
-        except FileNotFoundError:
+        exe = shutil.which(cmd[0])  # finds pnpm.cmd / npm.bat on Windows, which a bare name misses
+        if not exe:
             sys.exit(f"lock.py: command not found: {cmd[0]}")
+        code = subprocess.call([exe, *cmd[1:]])
     sys.exit(code)
 
 
