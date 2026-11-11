@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: status-is-read-only
+expected_outcome: |
+  With an existing paused goal (add-verbose-flag: step 1 of 3 done, step 2 next) that
+  another session owns, /mama status reports its status and progress (1 of 3) and names
+  the next step, and changes no goal file, source file or git state.
+context:
+  scaffold_script: place-files.sh

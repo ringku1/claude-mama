@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: new-goal-asks-first
+expected_outcome: |
+  In a tiny git repo (cli.py, README.md, test_cli.py on main), a new full goal is
+  created on disk with new-goal.py, research is done read-only and logged, and the run
+  ends with one batch of specific questions (base branch and PR among them, each with a
+  recommended option). No source file, branch or worktree is changed before the user
+  approves a plan.
+context:
+  scaffold_script: place-files.sh

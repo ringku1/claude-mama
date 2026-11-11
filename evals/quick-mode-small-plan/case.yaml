@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: quick-mode-small-plan
+expected_outcome: |
+  A quick goal is created with new-goal.py --quick (mode quick), no research agents or
+  profile.md, the user is asked only the base branch and the PR choice, and a plan of 1-3
+  one-line steps is shown. README.md is not edited before the user answers and approves.
+context:
+  scaffold_script: place-files.sh

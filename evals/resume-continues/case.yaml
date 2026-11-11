@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: resume-continues
+expected_outcome: |
+  With an approved, paused checkpointed goal (add-verbose-flag: S1 done and committed in its
+  worktree, S2 and S3 todo, base branch, PR and output stream already decided in log.md),
+  /mama resume add-verbose-flag re-enters from disk, sets the goal running, and continues
+  with S2 in the goal's worktree, without re-asking settled questions or re-planning.
+context:
+  scaffold_script: place-files.sh
