@@ -58,7 +58,7 @@ jobs:
           export HOME="$RUNNER_TEMP/home" MAMA_REPO="$GITHUB_WORKSPACE"
           mkdir -p "$HOME"
           bash install.sh
-          bash install.sh | grep -q updating
+          out=$(bash install.sh); echo "$out"; echo "$out" | grep -q updating
           test -f "$HOME/.claude/skills/mama/SKILL.md"
           python3 -c "import json,os; s=json.load(open(os.path.expanduser('~/.claude/settings.json'))); assert all('mama-hook.py' in json.dumps(s['hooks'][k]) for k in ('PreCompact','SessionStart','Stop'))"
           bash install.sh --uninstall
