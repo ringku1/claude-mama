@@ -9,6 +9,9 @@ A folder without plan.md is listed as "no plan.md". Open = any status but done o
 """
 import os, re, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402,F401  (UTF-8 output on Windows consoles)
+
 CLOSED = {"done", "aborted"}
 
 
