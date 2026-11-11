@@ -39,9 +39,10 @@ When every done criterion has evidence and the milestone check passed: run the f
 
 ## Pull request (only per the user's choice)
 
-- `ask at end` → show the draft title + description (format below); open on the user's yes; on no, set header `pr: declined` — the draft stays in your final message so the user can open it later.
-- `automatic` → open it; header `pr: <url>`.
-- `none` → skip; header `pr: none`.
+The header's `pr` is one of `ask-at-end | auto | none | declined | <url>` (plan-set refuses anything else).
+- `pr: ask-at-end` → show the draft title + description (format below); open on the user's yes and set `pr=<url>`; on no, set `pr=declined` — the draft stays in your final message so the user can open it later.
+- `pr: auto` → open it; set `pr=<url>`.
+- `pr: none` → skip.
 
 Use the repo's PR template if one exists. Body, short and clean:
 - **What** — the change in 2-4 bullets
@@ -63,9 +64,9 @@ Comment right after plan approval (what this goal will change, 1-2 lines), after
 2. Learning — every item is required:
    - `<store>/lessons.md` (append under `scripts/lock.py <store>/.shared.lock`) — one metrics line, then any lessons:
      `<date> <slug> <type> | steps <n> | time est <m>m critical path (sum <m>m) / actual <m>m (active <m>m) | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
-     Actual time = first to last log timestamp; active excludes waits for the user and idle gaps over 2h. Tokens are measured — take them from the `METRICS:` line close-check prints (run it first; it drafts this line).
+     Actual time = first to last log line, across days (log.py writes a `-- YYYY-MM-DD` marker when the date changes); active excludes waits for the user and idle gaps over 2h. Tokens are measured — take them from the `METRICS:` line close-check prints (run it first; it drafts this line).
    - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
    - `~/.claude/mama/patterns.md` via `scripts/learn.py` — `seen` for each choice the user made this goal (mode, PR, branch), and `goal "<kind, steps>: est <m>m critical path / <size>, actual <m>m (active <m>m) / <n>k measured"` — close-check prints it as `LEARN:` (never guessed).
 3. Clean up only what this run created: step worktrees, temp files, processes it started. The goal's own worktree: if the branch is pushed and the tree is clean, remove it (`git worktree remove`) — the branch stays, so the user can check it out; otherwise keep it and say where it is. Never stop the user's servers or containers.
-4. Run `python3 ${CLAUDE_SKILL_DIR}/scripts/close-check.py <store>/<slug>`. It lists anything missing (criteria evidence, step times, Trello line, metrics line, patterns update) and prints a prefilled metrics line — paste it into `lessons.md`, fill the `?` fields. Set plan status `done` only when it prints OK.
+4. Run `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/close-check.py <store>/<slug>`. It lists anything missing (criteria evidence, step times, Trello line, metrics line, patterns update) and prints a prefilled metrics line — paste it into `lessons.md`, fill the `?` fields. Set plan status `done` only when it prints OK.
 5. Tell the user in a few lines: done, branch, PR status, where the overview is.

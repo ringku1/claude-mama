@@ -8,7 +8,9 @@ Works on **macOS, Linux and Windows**.
 
 ## Quick start
 
-**1. Install** — paste one line, and it sets up everything it needs.
+**1. Install** — pick **one** of the two ways below, not both.
+
+**A. One line** (recommended; you type `/mama`). It also sets up git and Python if they're missing.
 
 macOS or Linux (Terminal):
 
@@ -22,9 +24,18 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
 ```
 
+**B. As a Claude Code plugin** (you type `/mama:mama` instead of `/mama`). You need git and Python 3.8+ already; on Windows, also [Git for Windows](https://gitforwindows.org).
+
+```bash
+claude plugin marketplace add ringku1/claude-mama
+claude plugin install mama@claude-mama
+```
+
+To switch from one way to the other, remove the first one before installing the second (see "Update or remove").
+
 **2. Restart Claude Code.**
 
-**3. Open your project in Claude Code and type** `/mama` followed by what you want:
+**3. Open your project in Claude Code and type** `/mama` (plugin: `/mama:mama`) followed by what you want:
 
 ```
 /mama add a price filter to the course list
@@ -53,10 +64,12 @@ Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 
 ## Update or remove
 
-- **Update:** paste the same install line again.
-- **Remove** (your notes in each project are kept):
-  - macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash -s -- --uninstall`
-  - Windows: `$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex`
+Your notes in each project are kept either way.
+
+| | One line | Plugin |
+| --- | --- | --- |
+| **Update** | paste the same install line again | `claude plugin marketplace update claude-mama` (new releases raise the version in `.claude-plugin/plugin.json`) |
+| **Remove** | macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh \| bash -s -- --uninstall`<br>Windows: `$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 \| iex` | `claude plugin uninstall mama@claude-mama` |
 
 ## If something goes wrong
 
@@ -66,6 +79,9 @@ Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 | macOS: "Command Line Tools" window opened | Click Install, wait for it to finish, then paste the install line again. |
 | Windows: "not available — open a new PowerShell window" | Close PowerShell, open a new one, paste the install line again. |
 | Linux: asks for your password | It's installing git or Python for you; type your password. |
+| mama stopped working after Python moved or was upgraded | Paste the install line again. |
+| "the mama@claude-mama plugin is enabled" | You have both ways installed. Keep one: uninstall the plugin, or remove the one-line install. |
+| A problem with mama's checks at the end of a turn | Look in `~/.claude/mama/hook-errors.log`; the hooks write their errors there and never block you. |
 
 ---
 
@@ -76,10 +92,10 @@ Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 1. Installs anything missing:
    - **git** and **Python 3.8+**: Homebrew or Apple's Command Line Tools on macOS, your package manager on Linux (apt, dnf, yum, pacman, zypper or apk), `winget` on Windows.
    - **Windows only:** Git for Windows, which also gives Claude Code the Bash tool it needs there.
-2. Downloads mama to `~/.claude/skills/mama` (`%USERPROFILE%\.claude\skills\mama` on Windows). If something else is already there, it's moved aside, not deleted.
-3. Registers three Claude Code hooks in `~/.claude/settings.json`. It keeps your other settings and saves the old file as `settings.json.bak`. The hooks call Python by its full path, so they work in any shell.
+2. Downloads mama to `~/.claude/skills/mama` (`%USERPROFILE%\.claude\skills\mama` on Windows; `$CLAUDE_CONFIG_DIR/skills/mama` when that is set). If something else is already there, it's moved aside, not deleted.
+3. Registers three Claude Code hooks in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). It keeps your other settings; the first install saves your original file as `settings.json.bak`. The hooks call Python by its full path, so they work in any shell.
 
-Prefer to do it by hand? Run `git clone https://github.com/ringku1/claude-mama.git ~/.claude/skills/mama`, then `python3 ~/.claude/skills/mama/install.py` (on Windows, `py` instead of `python3`).
+It stops with nothing changed if `settings.json` isn't valid JSON, and refuses to add hooks when the mama plugin is enabled. When an update fails, the message says why (local changes, no connection, and so on).
 
 ### How it works
 
@@ -111,7 +127,7 @@ claude.ai chat and Claude Code on the web: mama needs your personal skills folde
 
 ### Development
 
-Run the tests with `python3 tests/test_mama.py`. They run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows, and also tests the one-line installers there.
+Run all the tests with `python3 tests/test_mama.py`. They run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows, and also tests the one-line installers there.
 
 Issues and pull requests are welcome. Keep changes small and add a test for any script or hook change. `SKILL.md` and `rules/` are read by the model on every run, so keep them short and current.
 

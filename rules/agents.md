@@ -16,7 +16,7 @@ The user wants work done fast, so parallel agents are the default:
 
 ## Concurrency
 
-Before dispatching: `python3 ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready steps> <store> <own slug>` → prints
+Before dispatching: `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready steps> <store> <own slug>` → prints
 - `limit=N` for agents that edit and build (they run compilers and tests): min(ready, cores ÷ 2 (halved if load is high), free RAM GB ÷ 1.5, 8) minus steps other goals are running;
 - `read_limit=M` for read-only agents (research, review, test design): min(ready, 8) — they put no load on the machine.
 

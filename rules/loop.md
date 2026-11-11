@@ -22,7 +22,7 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 ## Cycle
 
-1. **Dispatch** every ready step (deps passed — not just started; owners free) at once, up to the limits from `python3 ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready> <store> <slug>` — one message, several background Agent calls. Status `running`; log one `dispatch` line naming them all. Refill as each returns: a finished step frees a slot for the next ready one.
+1. **Dispatch** every ready step (deps passed — not just started; owners free) at once, up to the limits from `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready> <store> <slug>` — one message, several background Agent calls. Status `running`; log one `dispatch` line naming them all. Refill as each returns: a finished step frees a slot for the next ready one.
 2. **Self-check**: the worker runs the cheapest checks on touched files (format, typecheck) before handing off.
 3. **Verify**: run the step's verify (and the checker, if the step needs one) while the other agents keep working; independent verifies run as parallel background commands, heavy ones queue on the lock. Status `testing`.
 4. **Pass** → record evidence and covered files in notes, status `done`, `end=now`, commit (`rules/delivery.md`), log `pass` + `commit`. When this completes a criterion's proof, fill its `evidence` cell (`plan-set.py <plan> C2 "evidence=..."`) — pre-delivery reads evidence from the Criteria table, not from the overview.
@@ -43,7 +43,7 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 ## Guards
 
 - **Scope**: anything outside the goal becomes a `parked` line (`plan-set.py <plan> P+ "text=…"`), not work. Existing code that breaks a repo rule is out of scope too — new code follows the rules; old violations are parked unless the goal is about them.
-- **Budget**: measured, not estimated — the Stop hook writes the real spend (main thread + this goal's subagents, from the transcripts) into the plan header at every turn end and blocks at 70%. Read it after every step and compare: at ~70% of the size's ceiling (S 210k, M 700k, L the number set at planning), stop dispatching, set status `waiting`, and ask: continue / cut scope / stop. On continue, raise the ceiling once with headroom — measured spend + the remaining steps' estimate + 30% — never in small steps that re-ask every turn (a merge-and-feature goal once asked 7 times). This check is not optional — it's the user's guard against runaway cost.
+- **Budget**: measured, not estimated — the Stop hook writes the real spend (main thread + this goal's subagents, from the transcripts) into the plan header at every turn end and blocks at 70%. Read it after every step and compare: at ~70% of the size's ceiling (S 210k, M 700k, L the number set at planning), stop dispatching, set status `waiting`, and ask: continue / cut scope / stop. On continue, raise the ceiling once (`--header budget='L <n>'`) with headroom — measured spend + the remaining steps' estimate + 30% — never in small steps that re-ask every turn (a merge-and-feature goal once asked 7 times). This check is not optional — it's the user's guard against runaway cost.
 - **Stop at done**: all criteria evidenced → deliver. No polish beyond the criteria.
 
 ## Interruptions

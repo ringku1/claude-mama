@@ -68,14 +68,6 @@ def milestone(goal):
     os.utime(p)
 
 
-def last_milestone(goal):
-    """mtime of the last milestone, or None for goals made before milestones were marked."""
-    try:
-        return os.path.getmtime(os.path.join(goal, MARK))
-    except OSError:
-        return None
-
-
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__)
