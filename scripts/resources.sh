@@ -3,13 +3,25 @@
 #   limit      — agents that edit and build: min(cores/2 (halved if busy), free RAM GB / 1.5, 8, ready)
 #                minus steps other goals are running
 #   read_limit — read-only agents (research, review, test design; no local load): min(8, ready)
-# Usage: resources.sh <ready_steps> [store_dir] [own_slug]
+# Usage: resources.sh <ready_steps> [store_dir] [own_slug]      (Linux and macOS)
 ready=${1:-5}
 store=${2:-}
 own=${3:-}
-cores=$(nproc)
-free_gb=$(awk '/MemAvailable/ {printf "%.1f", $2/1048576}' /proc/meminfo)
-load=$(cut -d' ' -f1 /proc/loadavg)
+
+if [ -r /proc/meminfo ]; then  # Linux
+  cores=$(nproc)
+  free_gb=$(awk '/MemAvailable/ {printf "%.1f", $2/1048576}' /proc/meminfo)
+  load=$(cut -d' ' -f1 /proc/loadavg)
+else  # macOS: free + inactive + speculative pages count as available
+  cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 2)
+  free_gb=$(vm_stat 2>/dev/null | awk '
+    /page size of/ {ps=$8}
+    /Pages (free|inactive|speculative)/ {gsub("\\.","",$NF); n+=$NF}
+    END {if (!ps) ps=4096; printf "%.1f", n*ps/1073741824}')
+  load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
+fi
+cores=${cores:-2}; free_gb=${free_gb:-2}; load=${load:-0}
+
 by_cpu=$(( cores / 2 )); [ "$by_cpu" -lt 1 ] && by_cpu=1
 busy=$(awk -v l="$load" -v c="$cores" 'BEGIN {print (l > c*0.7) ? 1 : 0}')
 [ "$busy" -eq 1 ] && by_cpu=$(( by_cpu / 2 > 0 ? by_cpu / 2 : 1 ))

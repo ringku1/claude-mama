@@ -2,7 +2,7 @@
 
 ## Model
 
-Every subagent: `model: "opus"`, `effort: "medium"`. This is the user's explicit instruction, so set both on every spawn. Don't switch to cheaper models to save tokens — save tokens with the rules below instead.
+Every subagent: `model: "opus"`, `effort: "medium"` — set both on every spawn, unless the user's own instructions say otherwise. Don't switch to cheaper models to save tokens — save tokens with the rules below instead.
 
 ## When to spawn — parallel by default
 

@@ -605,6 +605,22 @@ class PlanAndOverview(Base):
         self.assertIn("time est 20m critical path (sum 30m)", cc.stdout)
 
 
+
+class Install(Base):
+    def test_install_is_idempotent_and_removable(self):
+        settings = os.path.join(self.home, ".claude", "settings.json")
+        open(settings, "w").write(json.dumps({"model": "x", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo other"}]}]}}))
+        run = lambda *a: subprocess.run(["bash", os.path.join(SKILL, "install.sh"), *a], capture_output=True, text=True, env=self.env(None))
+        for _ in range(2):
+            self.assertEqual(run().returncode, 0)
+        s = json.load(open(settings))
+        self.assertEqual(s["model"], "x")
+        self.assertEqual([sum("mama-hook.py" in json.dumps(e) for e in s["hooks"][k]) for k in ("PreCompact", "SessionStart", "Stop")], [1, 1, 1])
+        self.assertEqual(len(s["hooks"]["Stop"]), 2)
+        self.assertEqual(os.path.realpath(os.path.join(self.home, ".claude", "skills", "mama")), os.path.realpath(SKILL))
+        self.assertEqual(run("--remove").returncode, 0)
+        self.assertEqual(json.load(open(settings))["hooks"], {"Stop": [{"hooks": [{"type": "command", "command": "echo other"}]}]})
+
 if __name__ == "__main__":
     import warnings
     warnings.simplefilter("ignore", ResourceWarning)
