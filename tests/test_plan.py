@@ -34,6 +34,17 @@ class PlanBase(Base):
         return next(l for l in self.read(self.p).splitlines() if l.startswith(f"| {i} "))
 
 
+class Pipes(PlanBase):
+    def test_pipe_in_a_cell_is_kept(self):
+        self.ps("S1", "verify=pytest -q | grep passed")
+        self.ps("S1", "status=running")  # a rewrite keeps the escaped pipe and the columns
+        sys.path.insert(0, S)
+        import estimate
+        head, rows = estimate.table(self.read(self.p), "Steps")
+        self.assertEqual(rows[0][head.index("verify")], "pytest -q | grep passed")
+        self.assertEqual(rows[0][head.index("status")], "running")
+
+
 class Budget(PlanBase):
     def test_every_form_keeps_spend_and_size(self):
         for typed, want in [("M", "~0k / M"), ("S", "~0k / S"), ("L 1.5M", "~0k / L 1.5M"),

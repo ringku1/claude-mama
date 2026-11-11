@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
 import fileio  # noqa: E402
 import overview  # noqa: E402
-from estimate import expand, summary  # noqa: E402
+from estimate import expand, split_row, summary  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
@@ -56,7 +56,7 @@ LIVE_EXCLUDED = {"obsolete", "parked"}
 
 
 def cells(line):
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    return split_row(line)  # raw cells; escaped pipes stay escaped when rewritten
 
 
 def render(values):
@@ -69,7 +69,7 @@ def parse_updates(args):
         if "=" not in arg:
             sys.exit(f"bad update {arg!r}, want key=value")
         k, v = arg.split("=", 1)
-        out[k] = v.replace("|", "/")
+        out[k] = re.sub(r"(?<!\\)\|", r"\\|", v)  # a pipe in a cell is escaped, not lost
     return out
 
 

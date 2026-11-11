@@ -85,11 +85,16 @@ def total(steps, left=False):
     return sum(minutes(s[2]) for s in steps if s[3] not in SKIP and not (left and s[3] == "done"))
 
 
+def split_row(line):
+    """A markdown table row's cells, raw: `\\|` inside a cell (an escaped pipe) doesn't split it."""
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+
+
 def table(text, section):
     """The `## <section>` markdown table: (header cells, rows). Rows with an empty first cell are
     skipped; short rows are padded so every row indexes like the header."""
     m = re.search(rf"^## {section}\n(.*?)(?=^## |\Z)", text or "", re.M | re.S)
-    rows = [[c.strip() for c in l.strip().strip("|").split("|")]
+    rows = [[c.replace("\\|", "|") for c in split_row(l)]
             for l in (m.group(1).splitlines() if m else []) if l.lstrip().startswith("|")]
     if len(rows) < 2:
         return [], []
