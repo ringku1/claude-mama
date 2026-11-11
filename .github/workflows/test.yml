@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: "3.8"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.13"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Tests
+        run: python3 -W ignore tests/test_mama.py
+      - name: Agent limits read this machine
+        run: |
+          out=$(bash scripts/resources.sh 6)
+          echo "$out"
+          echo "$out" | grep -Eq '^limit=[1-8] read_limit=6 cores=[1-9][0-9]* free_ram_gb=[0-9.]+ '
+          echo "$out" | grep -vq 'free_ram_gb=0.0 '
+      - name: Installer
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          HOME="$RUNNER_TEMP/home" ./install.sh
+          test -L "$RUNNER_TEMP/home/.claude/skills/mama"
+          grep -q mama-hook.py "$RUNNER_TEMP/home/.claude/settings.json"

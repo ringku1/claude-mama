@@ -1,5 +1,7 @@
 # mama — a goal-based work loop for Claude Code
 
+[![test](https://github.com/ringku1/claude-mama/actions/workflows/test.yml/badge.svg)](https://github.com/ringku1/claude-mama/actions/workflows/test.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `mama` is a [Claude Code](https://code.claude.com) skill that runs a piece of work to completion. You give it a goal. It researches the code, asks you one batch of questions, plans, and then loops build → verify → fix with parallel agents until every done-criterion has evidence.
 
 Everything is tracked in plain files, so a goal survives compaction, crashes and new sessions. You follow along in one short, plain-language `overview.md`.
@@ -78,4 +80,12 @@ Restart Claude Code afterwards. To update, run `git pull`. To remove the hooks, 
 python3 tests/test_mama.py
 ```
 
-The tests run every script and hook in a throwaway home folder and never touch your real `~/.claude`.
+The tests run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current) and macOS on every push.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes small, run `python3 tests/test_mama.py`, and add a test for any script or hook behaviour you change. The skill's text (`SKILL.md`, `rules/`) is read by the model on every run, so keep it short and current — say what to do, not its history.
+
+## License
+
+[MIT](LICENSE)
