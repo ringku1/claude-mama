@@ -85,16 +85,25 @@ def total(steps, left=False):
     return sum(minutes(s[2]) for s in steps if s[3] not in SKIP and not (left and s[3] == "done"))
 
 
-def steps_of(plan_text):
-    m = re.search(r"^## Steps\n(.*?)(?=^## |\Z)", plan_text, re.M | re.S)
+def table(text, section):
+    """The `## <section>` markdown table: (header cells, rows). Rows with an empty first cell are
+    skipped; short rows are padded so every row indexes like the header."""
+    m = re.search(rf"^## {section}\n(.*?)(?=^## |\Z)", text or "", re.M | re.S)
     rows = [[c.strip() for c in l.strip().strip("|").split("|")]
             for l in (m.group(1).splitlines() if m else []) if l.lstrip().startswith("|")]
     if len(rows) < 2:
-        return []
-    i = {k: n for n, k in enumerate(rows[0])}
+        return [], []
+    w = len(rows[0])
+    return rows[0], [r + [""] * (w - len(r)) for r in rows[2:] if r and r[0]]
+
+
+def steps_of(plan_text):
+    """[(id, deps, est, status)] for every step row."""
+    hdr, rows = table(plan_text, "Steps")
+    i = {k: n for n, k in enumerate(hdr)}
     if not {"deps", "est", "status"} <= i.keys():
         return []
-    return [(r[0], r[i["deps"]], r[i["est"]], r[i["status"]]) for r in rows[2:] if r and r[0] and len(r) == len(rows[0])]
+    return [(r[0], r[i["deps"]], r[i["est"]], r[i["status"]]) for r in rows]
 
 
 def summary(plan_text):

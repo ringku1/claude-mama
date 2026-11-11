@@ -8,62 +8,78 @@ of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 import datetime, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import clock  # noqa: E402
+import estimate  # noqa: E402
 import fileio  # noqa: E402,F401  (UTF-8 output)
 
 OPEN_STEP = {"todo", "running", "testing", "fixing", "blocked"}
 
 
-def table(text, section):
-    m = re.search(rf"^## {section}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    if not m:
-        return [], []
-    rows = [[c.strip() for c in l.strip().strip("|").split("|")]
-            for l in m.group(1).splitlines() if l.lstrip().startswith("|")]
-    if len(rows) < 2:
-        return [], []
-    return rows[0], [r for r in rows[2:] if r and r[0]]
-
-
-def minutes(hhmm):
-    h, m = map(int, hhmm.split(":"))
-    return h * 60 + m
-
-
 IDLE_GAP = 120  # minutes with no log line and no user wait open: the session sat idle (overnight, away)
 
 
-def waiting_minutes(log):
+def _timeline(log, start=None):
+    """clock.timeline, with a stand-in start day when the plan has none (the rollover rule)."""
+    if start is None:
+        m = re.search(r"^[EDFQ]\d+ (\d\d):(\d\d) ", log or "", re.M)
+        start = datetime.datetime(2000, 1, 1, int(m.group(1)) % 24, int(m.group(2)) % 60) if m else None
+    return clock.timeline(log, start)
+
+
+def waiting_minutes(log, start=None):
     """Minutes not spent working: waiting for the user — a question (Q) or a stop for them
     (`E waiting`, `checkpoint`, `asked`) until their next live answer (`D … tag: user`, not one
     settled "from patterns") or `E resume` — plus any gap of over IDLE_GAP minutes between log
-    lines (no agent runs that long without a log line; the session sat idle)."""
-    lines = re.findall(r"^([EDFQ])\d+ (\d\d:\d\d) (.*)$", log, re.M)
+    lines (no agent runs that long without a log line; the session sat idle). Lines are dated by
+    clock.timeline, so waits across days count in full."""
     total, since, prev = 0, None, None
-    for kind, t, text in lines:
-        gap = (minutes(t) - minutes(prev)) % (24 * 60) if prev else 0
-        prev = t
+    for dt, kind, _, text in _timeline(log, start):
+        gap = int((dt - prev).total_seconds() // 60) if prev else 0
+        prev = dt
         if since is None and gap > IDLE_GAP:
             total += gap
         if since is None and (kind == "Q" or (kind == "E" and re.match(r"(waiting|checkpoint|ask)", text)) or
                               (kind == "E" and "asked" in text)):
-            since = t
+            since = dt
         elif since is not None and ((kind == "D" and "tag: user" in text and "from patterns" not in text) or (kind == "E" and text.startswith("resume"))):
-            total += (minutes(t) - minutes(since)) % (24 * 60)
+            total += int((dt - since).total_seconds() // 60)
             since = None
     return total
 
 
-ID_RE = re.compile(r"\b[SDCQFE]\d+\b")
+def actual_minutes(log, start=None):
+    """First to last log line, in minutes (multi-day aware), or None with no dated line."""
+    tl = _timeline(log, start)
+    return int((tl[-1][0] - tl[0][0]).total_seconds() // 60) if tl else None
 
 
-def overview_problems(ov):
-    """The overview is the user's window: plain words, one screen."""
+ID_TOKEN = re.compile(r"(?<![\w./:#-])([SDCQFE]\d+[a-z]?)(?![\w/:-]|\.\w)")
+HOST_TLD = r"(?:com|org|net|io|dev|app|ai|co|cloud|local|localhost|internal|test|lan|me|sh|xyz)"
+FILE_LINE = re.compile(r"\b[\w./-]*\.[A-Za-z]\w{0,3}:\d+\b")
+
+
+def goal_ids(goal):
+    """The IDs this goal uses: step and criterion rows in plan.md, E/D/F/Q lines in log.md."""
+    ids = set()
+    for name, rx in (("plan.md", r"^\| *([SC]\d+[a-z]?) *\|"), ("log.md", r"^([EDFQ]\d+) ")):
+        try:
+            ids |= set(re.findall(rx, open(os.path.join(goal, name), encoding="utf-8").read(), re.M))
+        except OSError:
+            pass
+    return ids
+
+
+def overview_problems(ov, goal=None):
+    """The overview is the user's window: plain words, one screen. Internal IDs are flagged only
+    when this goal's plan or log has them (pass the goal dir; without it, IDs aren't checked)."""
     out = []
-    body = re.sub(r"`[^`]*`|\([^)]*\)\[|https?://\S+", "", ov)
-    ids = sorted(set(ID_RE.findall(body)) - {"S3"})  # S3 the storage service is a word, not a step
+    body = re.sub(r"`[^`]*`|\]\([^)]*\)|\b[a-z][\w+.-]*://\S+", "", ov)
+    body = re.sub(rf"\b(?:\d{{1,3}}(?:\.\d{{1,3}}){{3}}|localhost|[\w-]+(?:\.[\w-]+)*\.{HOST_TLD}):\d+\b", "", body)
+    known = goal_ids(goal) if goal else set()
+    ids = sorted({t for t in ID_TOKEN.findall(body) if t in known})
     if ids:
         out.append(f"overview.md shows internal IDs ({', '.join(ids[:4])}) — say it in plain words")
-    if re.search(r"\b[\w./-]+\.\w{1,4}:\d+\b", body):
+    if FILE_LINE.search(body):
         out.append("overview.md has file:line references — those belong in log.md")
     n = len([l for l in ov.splitlines() if l.strip()])
     if n > 60:
@@ -71,27 +87,48 @@ def overview_problems(ov):
     return out
 
 
-def commit_problems(goal, head):
-    """This goal's commits: no attribution lines, no loop internals."""
-    base, branch = head.get("base", ""), head.get("branch", "")
-    if not base or not branch or base in ("—", "n/a") or branch in ("—", "n/a") or base == branch:
-        return []
-    branch = branch.split()[0]
+def _git(goal, *args):
     try:
-        r = subprocess.run(["git", "-C", goal, "log", "--format=%H%x00%B%x01", f"origin/{base}..{branch}"],
-                           capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["git", "-C", goal, *args], capture_output=True, text=True, timeout=10)
     except Exception:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def commit_problems(goal, head):
+    """This goal's commits — those on the branch (past origin/<base> when base differs) committed
+    since the plan's `started:` — carry no attribution lines and no loop internals. Commits pushed
+    before this goal began (a continued branch, or work straight on the base) are not its own."""
+    base, branch = head.get("base", "").split(" ")[0], head.get("branch", "").split(" ")[0]
+    if not branch or branch in ("—", "n/a"):
         return []
-    if r.returncode != 0:
+    rev = branch
+    if base and base not in ("—", "n/a") and base != branch and _git(goal, "rev-parse", "-q", "--verify", f"origin/{base}") is not None:
+        rev = f"origin/{base}..{branch}"
+    start = clock.start_of("started: " + head.get("started", ""))
+    since = []
+    if start:
+        since = [f"--since={(start - datetime.timedelta(days=1)):%Y-%m-%d %H:%M}"]  # cheap prefilter; exact below
+    out = _git(goal, "log", "--format=%H%x00%ct%x00%B%x01", *since, rev)
+    if out is None:
         return []
     bad = []
-    for entry in r.stdout.split("\x01"):
-        if "\x00" not in entry:
+    for entry in out.split("\x01"):
+        if entry.count("\x00") < 2:
             continue
-        sha, msg = entry.strip().split("\x00", 1)
+        sha, ct, msg = entry.strip().split("\x00", 2)
+        if start and int(ct) < start.timestamp():
+            continue
         if re.search(r"Co-Authored-By:|Generated with \[?Claude|\bmama\b|\bplan\.md\b|\b(step|criterion) [SC]\d+\b", msg, re.I):
             bad.append(sha[:9])
     return [f"commits carry attribution or loop internals ({', '.join(bad[:5])}) — reword before push"] if bad else []
+
+
+def claimed_tokens(lessons, slug):
+    """(number, k|M) from the slug's latest metrics line — a reopened goal has several, and the
+    latest is the one this close writes — or None."""
+    found = re.findall(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} .*?tokens est [^/|]*/ ~?([\d.]+)([kM])", lessons, re.M)
+    return found[-1] if found else None
 
 
 def main():
@@ -105,7 +142,8 @@ def main():
     head = {k.strip(): v.strip() for k, v in head.items()}
     missing = []
 
-    hdr, steps = table(plan, "Steps")
+    start = clock.start_of(plan)
+    hdr, steps = estimate.table(plan, "Steps")
     si = {k: i for i, k in enumerate(hdr)}
     live = [s for s in steps if s[si["status"]] not in ("obsolete", "parked")]
     for s in live:
@@ -114,21 +152,17 @@ def main():
         if s[si["status"]] == "done" and not (s[si["start"]] and s[si["end"]]):
             missing.append(f"step {s[0]} has no start/end time (plan-set.py ... start=now / end=now)")
 
-    for s in live:
-        a, b = s[si["start"]], s[si["end"]]
-        if a and b and re.fullmatch(r"\d\d:\d\d", a) and re.fullmatch(r"\d\d:\d\d", b) and b < a \
-                and not (a > "20:00" and b < "04:00"):
-            missing.append(f"step {s[0]} ends ({b}) before it starts ({a})")
-
-    for name, text in (("plan.md", plan.split("## ")[0]), ("log.md", log)):
-        junk = re.findall(r"<[a-z][^<>\n]*\|[^<>\n]*>|<!--|HH:MM", text)
+    # the templates' own placeholders: `<a|b>` header fields and comments; the log's `E1 HH:MM` line
+    for name, text, rx in (("plan.md", plan.split("## ")[0], r"<[a-z][^<>\n]*\|[^<>\n]*>|<YYYY-MM-DD HH:MM>|<!--"),
+                           ("log.md", log, r"(?m)^<!--|^[EDFQ]\d+ HH:MM\b")):
+        junk = re.findall(rx, text)
         if junk:
             missing.append(f"{name} still has template placeholders ({', '.join(sorted(set(junk))[:3])})")
 
     if re.search(r"budget: ~0k", plan) and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
         missing.append("budget still ~0k though work ran — the Stop hook writes it; run scripts/spend.py <transcript> <plan> --write")
 
-    chdr, crit = table(plan, "Criteria")
+    chdr, crit = estimate.table(plan, "Criteria")
     ci = {k: i for i, k in enumerate(chdr)}
     for c in crit:
         if c[ci["evidence"]] in ("", "—", "-"):
@@ -166,7 +200,7 @@ def main():
         missing.append("overview.md has no **Status:** line — write it from templates/overview.md")
     if not quick and "## Final report" not in ov:
         missing.append("overview.md has no ## Final report (what was done, how verified, decisions, follow-ups)")
-    missing += overview_problems(ov)
+    missing += overview_problems(ov, goal)
     missing += commit_problems(goal, head)
 
     if not quick and not os.path.exists(profile_p):
@@ -180,20 +214,14 @@ def main():
         measured = sp.measure(os.path.join(goal, "plan.md"))
     except Exception:
         pass
-    ml = re.search(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} .*?tokens est [^/|]*/ ~?([\d.]+)([kM])", lessons, re.M)
+    ml = claimed_tokens(lessons, slug)
     if measured and ml:
-        claimed = float(ml.group(1)) * (1000 if ml.group(2) == "M" else 1)
+        claimed = float(ml[0]) * (1000 if ml[1] == "M" else 1)
         if abs(claimed - measured / 1000) > 0.25 * (measured / 1000) + 10:
-            missing.append(f"lessons metrics says ~{ml.group(1)}{ml.group(2)} tokens but measured is {round(measured / 1000)}k — use the measured number")
+            missing.append(f"lessons metrics says ~{ml[0]}{ml[1]} tokens but measured is {round(measured / 1000)}k — use the measured number")
 
-    times = re.findall(r"^[EDFQ]\d+ (\d\d:\d\d) ", log, re.M)
-    mins = "?m"
-    if times:
-        a, b = (datetime.datetime.strptime(t, "%H:%M") for t in (times[0], times[-1]))
-        total = int((b - a).total_seconds() // 60) % (24 * 60)
-        mins = f"{total}m (active {total - waiting_minutes(log)}m)"
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import estimate
+    total = actual_minutes(log, start)
+    mins = "?m" if total is None else f"{total}m (active {total - waiting_minutes(log, start)}m)"
     rows = [(s[0], s[si["deps"]], s[si["est"]], s[si["status"]]) for s in live]
     est, est_sum = estimate.critical_path(rows), estimate.total(rows)
     att = sum(int(s[si["att"]] or 0) for s in live if s[si["att"]].isdigit())

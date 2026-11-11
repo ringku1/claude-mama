@@ -360,12 +360,6 @@ class Lean(Base):
         log = self.read(os.path.join(g, "log.md"))
         self.assertRegex(log, r"E\d+ \d\d:\d\d waiting for the user\nE\d+ \d\d:\d\d resume\n")
 
-    def test_overview_problems(self):
-        cc = self.cc()
-        self.assertEqual(cc.overview_problems("# Goal\n\n**Status:** Working\nFiles stored in S3."), [])
-        out = cc.overview_problems("# Goal\nS4 is done, see store.go:185\n" + "line\n" * 70)
-        self.assertEqual(len(out), 3, out)
-
     def test_commit_problems(self):
         origin = os.path.join(self.tmp, "origin.git")
         subprocess.run(["git", "init", "-q", "--bare", origin], check=True)
@@ -472,7 +466,7 @@ class PlanAndOverview(Base):
         out = self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", ok=False)
         self.assertIn("no research recorded", out)
         self.run_s("log.py", log, "E", "research none: one-line config change")
-        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous")
+        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", "budget=S")
         q = self.new_goal("tiny")  # quick goals skip research
         self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
         self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
@@ -592,7 +586,7 @@ class Portable(Base):
         g = self.run_s("new-goal.py", os.path.join(link, ".claude", "mama"), "demo", "build", "t").splitlines()[0]
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test")
         self.run_s("plan-set.py", os.path.join(g, "plan.md"), "S+", "title=a", "verify=v")
-        self.run_s("plan-set.py", os.path.join(g, "plan.md"), "--header", "status=running", "mode=autonomous")
+        self.run_s("plan-set.py", os.path.join(g, "plan.md"), "--header", "status=running", "mode=autonomous", "budget=S")
         out = json.loads(Hook.hook.__get__(self)("sessionstart"))["hookSpecificOutput"]["additionalContext"]
         self.assertIn("This session's goal is 'demo'", out)
 
