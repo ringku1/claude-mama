@@ -88,14 +88,13 @@ class WhoseGoal(HookBase):
         self.assertIn("This session's goal is 'second'", ctx)
         self.assertIn("also touched open goal(s): first", ctx)
 
-    def test_transcript_fallback_only_for_unrecorded_goals(self):
-        g = self.running_goal(slug="old", sid=None)  # from before activity records
-        self.write_transcript("sess-b", g)
+    def test_unrecorded_goal_is_never_claimed(self):
+        g = self.running_goal(slug="old", sid=None)  # no session recorded writes to it
+        self.write_transcript("sess-b", g)  # even if the transcript mentions it
         ctx = json.loads(self.hook("sessionstart", sid="sess-b"))["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("This session's goal is 'old'", ctx)
-        # the compaction line is an event, not a write: it records nothing, even with a session id set
-        self.assertIn("keep: the slug 'old'", self.hook("precompact", sid="sess-b", env_sid="sess-b"))
-        self.assertIn("compaction (auto)", self.read(os.path.join(g, "log.md")))
+        self.assertIn("None of them is recorded as this session's", ctx)
+        self.hook("precompact", sid="sess-b", env_sid="sess-b")
+        self.assertNotIn("compaction", self.read(os.path.join(g, "log.md")))
         self.assertNotIn("sess-b", self.activity())
 
     def test_old_git_without_path_format(self):
@@ -115,7 +114,7 @@ class WhoseGoal(HookBase):
                 f.write(f'#!/bin/sh\n{body}\nexec {real} "$@"\n')
             os.chmod(os.path.join(d, "git"), 0o755)
             out = self.hook("sessionstart", sid="sess-b", cwd=os.path.join(self.repo, ".claude"), path=d)
-            self.assertIn("This session's goal is 'demo'", out, name)
+            self.assertIn("\\n- demo ", out, name)  # the cwd's store was found
 
 
 class Stop(HookBase):

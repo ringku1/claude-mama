@@ -100,23 +100,12 @@ def session_id(inp):
 
 
 def session_goals(inp, store):
-    """Goals (dicts) this session wrote to, most recent last. Recorded writes in any store;
-    with none recorded, the transcript's writes to cwd-store goals nobody recorded."""
+    """Goals (dicts) this session wrote to, most recent last, in any store — only from
+    activity.log, which every goal write records. No record, no goal: guessing from the
+    transcript misattributed goals and read huge transcripts on every turn."""
     sid = session_id(inp)
     order = getattr(activity, "goals_for", None) or activity.goals_of
-    recorded = order(sid) if sid else []
-    if recorded:
-        dirs = recorded
-    else:
-        if not store:
-            return []
-        try:
-            slugs = _load("mama_spend", "spend.py").written_slugs(inp.get("transcript_path") or "")
-        except Exception:
-            slugs = []
-        claimed = {g for _, _, g in activity.entries()}
-        dirs = [d for d in (activity.canon(os.path.join(store, s)) for s in slugs) if d not in claimed]
-    return [g for g in map(read_goal, dirs) if g]
+    return [g for g in map(read_goal, order(sid) if sid else []) if g]
 
 
 def log_text(plan):
