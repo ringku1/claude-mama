@@ -197,11 +197,14 @@ def main():
     budget = head.get("budget", "?")
     size = budget.split("/")[-1].strip() if "/" in budget else "?"
     spent = f"{round(measured / 1000)}k" if measured else (budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?")
+    questions = len(re.findall(r"^Q", log, re.M))
+    compactions = len(re.findall(r"^E\d+ \S+ compaction", log, re.M))
+    reversed_ = len(re.findall(r"supersedes", log))
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
             f"time est {est}m critical path (sum {est_sum}m) / actual {mins} | tokens est {size} / ~{spent} | "
-            f"questions {len(re.findall(r'^Q', log, re.M))} (changed plan: ?) | fix rounds {att} | "
-            f"checker findings ? | compactions {len(re.findall(r'^E\d+ \S+ compaction', log, re.M))} | "
-            f"wrong assumptions ? | reversed decisions {len(re.findall(r'supersedes', log))}")
+            f"questions {questions} (changed plan: ?) | fix rounds {att} | "
+            f"checker findings ? | compactions {compactions} | "
+            f"wrong assumptions ? | reversed decisions {reversed_}")
 
     for m in missing:
         print("MISSING:", m)

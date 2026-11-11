@@ -16,13 +16,13 @@ The user wants work done fast, so parallel agents are the default:
 
 ## Concurrency
 
-Before dispatching: `bash ${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready steps> <store> <own slug>` → prints
+Before dispatching: `python3 ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready steps> <store> <own slug>` → prints
 - `limit=N` for agents that edit and build (they run compilers and tests): min(ready, cores ÷ 2 (halved if load is high), free RAM GB ÷ 1.5, 8) minus steps other goals are running;
 - `read_limit=M` for read-only agents (research, review, test design): min(ready, 8) — they put no load on the machine.
 
 Fill both up to their limits.
 
-- Heavy verifies (full build, e2e) and anything touching shared services run one at a time across all goals: `flock <store>/.heavy.lock <cmd>`.
+- Heavy verifies (full build, e2e) and anything touching shared services run one at a time across all goals: `scripts/lock.py <store>/.heavy.lock <cmd>`.
 - Read-only agents share the working tree.
 - All agents of a goal work in the goal's worktree (give the absolute path in the brief).
 - **Parallel editing agents share it** whenever their `owns` are disjoint files or directories, at any depth (two modules, two screens, a test file next to the code it tests). No agent commits; each runs only its own area's checks; you commit each step with `git add <its owns>` after its verify. Generated files have one owner, or you regenerate them once after the parallel steps land. A typecheck error in files another agent owns isn't the agent's to fix: it reports it. Sharing is cheaper than a step worktree, which needs a fresh install.

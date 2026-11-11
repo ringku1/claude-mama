@@ -37,6 +37,7 @@ class Base(unittest.TestCase):
     def env(self, sid="sess-a"):
         e = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CODE_SESSION")}
         e["HOME"] = self.home
+        e["USERPROFILE"] = self.home  # Windows: expanduser reads USERPROFILE, not HOME
         if sid:
             e["CLAUDE_CODE_SESSION_ID"] = sid
         return e
@@ -575,11 +576,11 @@ class PlanAndOverview(Base):
         self.assertIn("regenerate overview.md", json.loads(hook("stop"))["reason"])
 
     def test_resource_limits(self):
-        r = subprocess.run(["bash", os.path.join(S, "resources.sh"), "20"], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, os.path.join(S, "resources.py"), "20"], capture_output=True, text=True)
         m = dict(re.findall(r"(\w+)=([\d.]+)", r.stdout))
         self.assertEqual(m["read_limit"], "8")
         self.assertTrue(1 <= int(m["limit"]) <= 8)
-        r = subprocess.run(["bash", os.path.join(S, "resources.sh"), "2"], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, os.path.join(S, "resources.py"), "2"], capture_output=True, text=True)
         self.assertIn("read_limit=2", r.stdout)
 
     def test_critical_path_not_sum(self):
@@ -610,16 +611,44 @@ class Install(Base):
     def test_install_is_idempotent_and_removable(self):
         settings = os.path.join(self.home, ".claude", "settings.json")
         open(settings, "w").write(json.dumps({"model": "x", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo other"}]}]}}))
-        run = lambda *a: subprocess.run(["bash", os.path.join(SKILL, "install.sh"), *a], capture_output=True, text=True, env=self.env(None))
+        run = lambda *a: subprocess.run([sys.executable, os.path.join(SKILL, "install.py"), *a], capture_output=True, text=True, env=self.env(None))
         for _ in range(2):
             self.assertEqual(run().returncode, 0)
         s = json.load(open(settings))
         self.assertEqual(s["model"], "x")
         self.assertEqual([sum("mama-hook.py" in json.dumps(e) for e in s["hooks"][k]) for k in ("PreCompact", "SessionStart", "Stop")], [1, 1, 1])
         self.assertEqual(len(s["hooks"]["Stop"]), 2)
+        mine = s["hooks"]["SessionStart"][0]
+        self.assertEqual((mine["matcher"], mine["hooks"][0]["command"], mine["hooks"][0]["args"][1]),
+                         ("compact", sys.executable, "sessionstart"))  # exec form: no shell, no ~
         self.assertEqual(os.path.realpath(os.path.join(self.home, ".claude", "skills", "mama")), os.path.realpath(SKILL))
         self.assertEqual(run("--remove").returncode, 0)
         self.assertEqual(json.load(open(settings))["hooks"], {"Stop": [{"hooks": [{"type": "command", "command": "echo other"}]}]})
+
+
+class Portable(Base):
+    @unittest.skipIf(os.name == "nt", "symlinked folders are a POSIX case")
+    def test_goal_found_through_a_symlinked_path(self):
+        # macOS: /var is /private/var — git reports the resolved path, scripts may get the other one
+        link = os.path.join(self.tmp, "link")
+        os.symlink(self.repo, link)
+        g = self.run_s("new-goal.py", os.path.join(link, ".claude", "mama"), "demo", "build", "t").splitlines()[0]
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test")
+        self.run_s("plan-set.py", os.path.join(g, "plan.md"), "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", os.path.join(g, "plan.md"), "--header", "status=running", "mode=autonomous")
+        out = json.loads(Hook.hook.__get__(self)("sessionstart"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("This session's goal is 'demo'", out)
+
+    def test_lock_serializes_and_passes_exit_code(self):
+        lock, out = os.path.join(self.tmp, "x.lock"), os.path.join(self.tmp, "order.txt")
+        writer = "import sys,time;f=open(sys.argv[1],'a');f.write(sys.argv[2]+'-in ');f.flush();time.sleep(float(sys.argv[3]));f.write(sys.argv[2]+'-out ')"
+        a = subprocess.Popen([sys.executable, os.path.join(S, "lock.py"), lock, sys.executable, "-c", writer, out, "A", "0.8"])
+        time.sleep(0.3)
+        subprocess.run([sys.executable, os.path.join(S, "lock.py"), lock, sys.executable, "-c", writer, out, "B", "0"])
+        a.wait()
+        self.assertEqual(self.read(out).split(), ["A-in", "A-out", "B-in", "B-out"])
+        r = subprocess.run([sys.executable, os.path.join(S, "lock.py"), lock, sys.executable, "-c", "raise SystemExit(3)"])
+        self.assertEqual(r.returncode, 3)
 
 if __name__ == "__main__":
     import warnings

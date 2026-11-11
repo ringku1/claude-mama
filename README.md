@@ -27,8 +27,8 @@ Everything is tracked in plain files, so a goal survives compaction, crashes and
 
 ## Requirements
 
-- Claude Code (CLI or IDE extension) on **Linux or macOS**. On Windows, use WSL.
-- `python3` 3.8+ and `git`.
+- Claude Code (CLI or IDE extension) on **Linux, macOS or Windows**.
+- Python 3.8+ and `git`. On Windows, Claude Code's Bash tool also needs [Git for Windows](https://git-scm.com/download/win) (Git Bash).
 - Work happens inside a git repository.
 
 It does not run in claude.ai chat or in Claude Code on the web: it needs your user-level skills and its hooks.
@@ -38,14 +38,14 @@ It does not run in claude.ai chat or in Claude Code on the web: it needs your us
 ```bash
 git clone https://github.com/ringku1/claude-mama.git
 cd claude-mama
-./install.sh
+python3 install.py        # Windows: py install.py
 ```
 
-`install.sh` does two things:
-- links the folder to `~/.claude/skills/mama`;
-- adds three hooks (PreCompact, SessionStart on compact, Stop) to `~/.claude/settings.json`. It keeps your other settings and saves the old file as `settings.json.bak`.
+`install.py` does two things:
+- links the folder to `~/.claude/skills/mama`. That's a symlink on Linux and macOS, and a directory junction on Windows, which needs no admin rights.
+- adds three hooks (PreCompact, SessionStart on compact, Stop) to `~/.claude/settings.json`. It writes them with the absolute path of the Python you ran it with, so they don't depend on a shell or on `python3` being on PATH. It keeps your other settings and saves the old file as `settings.json.bak`.
 
-Restart Claude Code afterwards. To update, run `git pull`. To remove the hooks, run `./install.sh --remove`.
+Restart Claude Code afterwards. To update, run `git pull`. Re-run the installer only if you moved the folder or your Python. To remove the hooks, run `python3 install.py --remove`.
 
 ## Commands
 
@@ -71,7 +71,7 @@ Restart Claude Code afterwards. To update, run `git pull`. To remove the hooks, 
 ## Defaults you may want to change
 
 - **Subagent model:** every subagent runs as `model: opus`, `effort: medium` (`rules/agents.md`).
-- **Agent limits:** at most 8 building agents (fewer if CPU or memory is short) and 8 read-only agents (`scripts/resources.sh`).
+- **Agent limits:** at most 8 building agents (fewer if CPU or memory is short) and 8 read-only agents (`scripts/resources.py`).
 - **Budgets:** S ≤ 300k tokens, M ≤ 1M, L takes a number you set. The size references in `rules/planning.md` come from real runs on one monorepo; your numbers will differ and are learned in `lessons.md`.
 
 ## Tests
@@ -80,7 +80,7 @@ Restart Claude Code afterwards. To update, run `git pull`. To remove the hooks, 
 python3 tests/test_mama.py
 ```
 
-The tests run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current) and macOS on every push.
+The tests run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows on every push.
 
 ## Contributing
 

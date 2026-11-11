@@ -56,7 +56,7 @@ Parse `$ARGUMENTS`:
 
 **User-level**, all repos: `~/.claude/mama/patterns.md` — how this user works (choices, corrections, preferences, estimate accuracy). Created from `templates/patterns.md` on first use. It's about the user, so it's written in plain language they can read and edit; their edits win.
 
-Skill files (`templates/`, `rules/`, `scripts/`) live in `${CLAUDE_SKILL_DIR}`; read each only when the flow points to it. Slug: 2-5 kebab-case words from the goal.
+Skill files (`templates/`, `rules/`, `scripts/`) live in `${CLAUDE_SKILL_DIR}`; read each only when the flow points to it. Commands here say `python3`; where that isn't on PATH (often on Windows), use `python` or `py` — any Python 3.8+. Slug: 2-5 kebab-case words from the goal.
 
 ### Several goals at once
 
@@ -64,9 +64,9 @@ The user may run several goals in parallel sessions. Each goal is isolated:
 - **Its own tracking folder** `<store>/<slug>/`; a session only ever writes its own goal's files. Remember your slug — it's in every re-entry.
 - **Its own worktree** for build/fix/mixed goals (and research goals that commit a deliverable): `<main checkout>/.claude/worktrees/mama-<slug>/` on the goal's branch, recorded in the plan header. All code work, commands and agents for the goal happen there — prefix shell commands with `cd <worktree> &&` and use absolute paths for file tools. Research-only goals work read-only in the main checkout. Never switch branches in the main checkout; it belongs to the user.
 - **Shared, so coordinated**:
-  - Shared files (`profile.md`, `lessons.md`, `.git/info/exclude`, `patterns.md`): create only if absent (`set -C`), add exclude lines only if missing, and append/edit under `flock <store>/.shared.lock` (`~/.claude/mama/.patterns.lock` for patterns).
-  - Verifies that touch shared services (database, Redis), every full gate, and heavy runs (build, e2e) go under `flock <store>/.heavy.lock <cmd>` so goals don't collide.
-  - The agent limit (`scripts/resources.sh <ready> <store> <own slug>`) subtracts other goals' running steps.
+  - Shared files (`profile.md`, `lessons.md`, `.git/info/exclude`, `patterns.md`): create only if absent (`set -C`), add exclude lines only if missing, and append/edit under `scripts/lock.py <store>/.shared.lock` (`~/.claude/mama/.patterns.lock` for patterns).
+  - Verifies that touch shared services (database, Redis), every full gate, and heavy runs (build, e2e) go under `python3 ${CLAUDE_SKILL_DIR}/scripts/lock.py <store>/.heavy.lock <cmd>` (wrap shell syntax in `bash -c '…'`) so goals don't collide.
+  - The agent limit (`scripts/resources.py <ready> <store> <own slug>`) subtracts other goals' running steps.
   - `git fetch` and `git push` run as `git -C <main checkout> ...` — refs are shared with the worktree, and it works for any remote URL.
 
 **Same branch, two goals:** a branch can be checked out only once, so a goal that targets a branch another open goal works on shares that goal's worktree and runs after it, never in parallel with it. Say in both overviews that one push carries both goals' commits, and never push one goal's commits while the other has uncommitted work in the tree.
@@ -122,7 +122,7 @@ For small tasks (≈ under 30 minutes, one area). Intake with `new-goal.py … -
 
 1. **Scope:** the criteria and steps that match `<what>` (all criteria if none given). Read their verify, evidence, the decisions behind them, and the code they touched.
 2. **Manual test guide for the user** — they test in their own running app; never start, stop, reseed or migrate it. Per scenario: where (URL / screen / command, which branch must be running), any setup data, the exact steps, the expected result in plain words. Cover the happy path, edges and errors the code actually handles (empty, limits, permissions), and say what is out of scope. Tell them which branch to run if theirs isn't it.
-3. **Our own check, in parallel:** rerun the automated tests that prove those criteria (narrow, not the full suite), in the goal's worktree — or, if it's gone, a temporary one `.claude/worktrees/mama-<slug>-test` on the branch, removed after. Shared services under `flock <store>/.heavy.lock`. Report pass/fail with the command.
+3. **Our own check, in parallel:** rerun the automated tests that prove those criteria (narrow, not the full suite), in the goal's worktree — or, if it's gone, a temporary one `.claude/worktrees/mama-<slug>-test` on the branch, removed after. Shared services under `scripts/lock.py <store>/.heavy.lock`. Report pass/fail with the command.
 4. **Record** in `<slug>/tests.md` (not log.md — a closed goal's log stays closed): date, scope, scenarios given, automated result, and later what the user reports.
 5. **The user reports back** ("upload of 0-byte file fails"): reproduce or read the code to confirm, add it to `tests.md`, then offer the fix via `/mama change <slug>` — on a closed goal that reopens it (`rules/changes.md` step 0) so the fix gets steps, commits, log and a new close. Don't fix before they pick.
 

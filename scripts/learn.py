@@ -11,7 +11,7 @@ Match an existing line by copying its pattern text (the part before the first " 
 At 3/… a Watching line moves to [section] (default "How you like things done").
 Sections: "Choices you make", "How you like things done", "Corrections you've made".
 """
-import datetime, fcntl, os, re, sys
+import datetime, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402
@@ -59,8 +59,7 @@ def main():
     section = "## " + (sys.argv[3] if len(sys.argv) > 3 else DEFAULT)
     today = datetime.date.today().isoformat()
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
-    with open(LOCK, "a") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+    with open(LOCK, "a+") as lk, fileio.locked(lk):
         lines = open(PATH, encoding="utf-8").read().split("\n") if os.path.exists(PATH) else ["# How you work", ""]
         if kind == "goal":
             insert(lines, GOALS, f"- {text} — last {today}")

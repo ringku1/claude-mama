@@ -8,21 +8,20 @@ Usage: log.py <log.md> <E|D|F|Q> "<text>"
 Prints the line written; a `wait` line identical to the last line is not written again. IDs and times are never typed by hand, so they can't drift.
 """
 import datetime
-import fcntl
 import re
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
+import fileio  # noqa: E402
 
 
 def main():
     if len(sys.argv) != 4 or sys.argv[2] not in {"E", "D", "F", "Q"}:
         sys.exit(__doc__)
     path, kind, text = sys.argv[1], sys.argv[2], " ".join(sys.argv[3].split())
-    with open(path, "a+", encoding="utf-8") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+    with open(path, "a+", encoding="utf-8") as f, fileio.locked(f):
         f.seek(0)
         content = f.read()
         last = [l for l in content.splitlines() if l.strip()][-1:]

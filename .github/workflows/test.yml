@@ -17,23 +17,28 @@ jobs:
             python: "3.13"
           - os: macos-latest
             python: "3.13"
+          - os: windows-latest
+            python: "3.13"
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
       - name: Tests
-        run: python3 -W ignore tests/test_mama.py
+        run: python -W ignore tests/test_mama.py
       - name: Agent limits read this machine
         run: |
-          out=$(bash scripts/resources.sh 6)
+          out=$(python scripts/resources.py 6)
           echo "$out"
-          echo "$out" | grep -Eq '^limit=[1-8] read_limit=6 cores=[1-9][0-9]* free_ram_gb=[0-9.]+ '
-          echo "$out" | grep -vq 'free_ram_gb=0.0 '
+          echo "$out" | grep -Eq '^limit=[1-8] read_limit=6 cores=[1-9][0-9]* free_ram_gb=[0-9]+\.[0-9] '
+          echo "$out" | grep -vq 'free_ram_gb=0\.0 '
       - name: Installer
         run: |
-          mkdir -p "$RUNNER_TEMP/home"
-          HOME="$RUNNER_TEMP/home" ./install.sh
-          test -L "$RUNNER_TEMP/home/.claude/skills/mama"
-          grep -q mama-hook.py "$RUNNER_TEMP/home/.claude/settings.json"
+          home="$RUNNER_TEMP/home"
+          mkdir -p "$home"
+          HOME="$home" USERPROFILE="$home" python install.py
+          HOME="$home" USERPROFILE="$home" python -c "import json,os,sys; p=os.path.join(os.path.expanduser('~'),'.claude'); s=json.load(open(os.path.join(p,'settings.json'))); assert os.path.isfile(os.path.join(p,'skills','mama','SKILL.md')); assert all('mama-hook.py' in json.dumps(s['hooks'][k]) for k in ('PreCompact','SessionStart','Stop')); print('installed ok')"

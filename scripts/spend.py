@@ -218,7 +218,7 @@ def usage_where(path, lo, hi, keep):
 
 def measure_one(plan, transcript):
     lo, hi, _ = window(plan)
-    goal = os.path.dirname(os.path.abspath(plan))
+    goal = activity.canon(os.path.dirname(os.path.abspath(plan)))
     slug = os.path.basename(goal)
     acts = activity.timeline(os.path.splitext(os.path.basename(transcript))[0])
     timeline = []

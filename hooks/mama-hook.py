@@ -75,6 +75,7 @@ def session_goals(inp, store):
     by the skill's writers (activity.log); for older sessions, read from the transcript."""
     sp = _spend()
     sid = inp.get("session_id") or os.path.splitext(os.path.basename(inp.get("transcript_path", "")))[0]
+    store = sp.activity.canon(store)
     recorded = [os.path.basename(g) for g in sp.activity.goals_for(sid) if os.path.dirname(g) == store]
     try:
         data = open(inp.get("transcript_path", ""), encoding="utf-8", errors="ignore").read()

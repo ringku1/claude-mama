@@ -22,7 +22,7 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 ## Cycle
 
-1. **Dispatch** every ready step (deps passed — not just started; owners free) at once, up to the limits from `${CLAUDE_SKILL_DIR}/scripts/resources.sh <ready> <store> <slug>` — one message, several background Agent calls. Status `running`; log one `dispatch` line naming them all. Refill as each returns: a finished step frees a slot for the next ready one.
+1. **Dispatch** every ready step (deps passed — not just started; owners free) at once, up to the limits from `python3 ${CLAUDE_SKILL_DIR}/scripts/resources.py <ready> <store> <slug>` — one message, several background Agent calls. Status `running`; log one `dispatch` line naming them all. Refill as each returns: a finished step frees a slot for the next ready one.
 2. **Self-check**: the worker runs the cheapest checks on touched files (format, typecheck) before handing off.
 3. **Verify**: run the step's verify (and the checker, if the step needs one) while the other agents keep working; independent verifies run as parallel background commands, heavy ones queue on the lock. Status `testing`.
 4. **Pass** → record evidence and covered files in notes, status `done`, `end=now`, commit (`rules/delivery.md`), log `pass` + `commit`. When this completes a criterion's proof, fill its `evidence` cell (`plan-set.py <plan> C2 "evidence=..."`) — pre-delivery reads evidence from the Criteria table, not from the overview.
@@ -56,4 +56,4 @@ User messages mid-run, sorted immediately:
 
 ## Environment
 
-Before a verify that needs services (DB, Redis, a running app), check them with the command in `profile.md`. Down → report and wait. Run such verifies, and heavy ones, under `flock <store>/.heavy.lock` — other goals may be using the same services. Never start, stop, restart or reseed shared services or running dev stacks.
+Before a verify that needs services (DB, Redis, a running app), check them with the command in `profile.md`. Down → report and wait. Run such verifies, and heavy ones, under `scripts/lock.py <store>/.heavy.lock` — other goals may be using the same services. Never start, stop, restart or reseed shared services or running dev stacks.

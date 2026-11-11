@@ -35,7 +35,7 @@ Before work starts and again right before push: `git -C <main checkout> fetch or
 
 ## Push
 
-When every done criterion has evidence and the milestone check passed: run the full gate from `profile.md` once (under `flock <store>/.heavy.lock`), merge the latest base, push the branch (`git -C <main checkout> push -u origin <branch>`). Check the exit status, then log `push`.
+When every done criterion has evidence and the milestone check passed: run the full gate from `profile.md` once (under `scripts/lock.py <store>/.heavy.lock`), merge the latest base, push the branch (`git -C <main checkout> push -u origin <branch>`). Check the exit status, then log `push`.
 
 ## Pull request (only per the user's choice)
 
@@ -61,7 +61,7 @@ Comment right after plan approval (what this goal will change, 1-2 lines), after
 
 1. Regenerate `overview.md` with the Final report: what was built/found, how verified, decisions worth review, parked follow-ups, spend.
 2. Learning — every item is required:
-   - `<store>/lessons.md` (append under `flock <store>/.shared.lock`) — one metrics line, then any lessons:
+   - `<store>/lessons.md` (append under `scripts/lock.py <store>/.shared.lock`) — one metrics line, then any lessons:
      `<date> <slug> <type> | steps <n> | time est <m>m critical path (sum <m>m) / actual <m>m (active <m>m) | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
      Actual time = first to last log timestamp; active excludes waits for the user and idle gaps over 2h. Tokens are measured — take them from the `METRICS:` line close-check prints (run it first; it drafts this line).
    - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
