@@ -8,6 +8,10 @@ Usage: estimate.py <plan.md>   # prints the critical path, the sum, and what's l
 """
 import re
 import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402,F401  (UTF-8 output)
 
 SKIP = {"obsolete", "parked"}
 

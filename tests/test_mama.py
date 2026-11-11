@@ -14,6 +14,9 @@ import tempfile
 import time
 import unittest
 
+if os.name == "nt" and not sys.flags.utf8_mode:  # goal files are UTF-8; Windows defaults to cp1252
+    sys.exit(subprocess.call([sys.executable, "-X", "utf8", *sys.argv]))
+
 SKILL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 S = os.path.join(SKILL, "scripts")
 HOOK = os.path.join(SKILL, "hooks", "mama-hook.py")
@@ -82,7 +85,7 @@ class NewGoalAndLog(Base):
 
     def test_taken_slug_gets_suffix(self):
         self.new_goal()
-        self.assertTrue(self.new_goal().endswith("/demo-2"))
+        self.assertEqual(os.path.basename(self.new_goal()), "demo-2")
 
     def test_log_ids_per_kind(self):
         g = self.new_goal()
@@ -147,7 +150,8 @@ class Activity(Base):
         self.run_s("log.py", os.path.join(b, "log.md"), "E", "z", sid="sess-b")
         lines = self.read(os.path.join(self.home, ".claude", "mama", "activity.log")).splitlines()
         # one: created (a) · two: created (a) · one: back to it (a) · two (b)
-        self.assertEqual([l.split()[1:] for l in lines],
+        a, b = os.path.realpath(a), os.path.realpath(b)  # recorded resolved (macOS /var, Windows 8.3 names)
+        self.assertEqual([l.split(" ", 2)[1:] for l in lines],
                          [["sess-a", a], ["sess-a", b], ["sess-a", a], ["sess-b", b]])
 
     def test_no_session_id_records_nothing(self):

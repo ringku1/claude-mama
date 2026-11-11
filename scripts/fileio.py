@@ -6,8 +6,17 @@ locked(f):    an exclusive lock on an open file (fcntl on Linux/macOS, msvcrt on
 """
 import contextlib
 import os
+import sys
 import tempfile
 import time
+
+# Goal files and messages hold "—", "·", "★", "⅔": print UTF-8 even where the console isn't
+# (Windows defaults to cp1252 and would crash on them). Every script imports this module.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 
 def write_atomic(path, text):

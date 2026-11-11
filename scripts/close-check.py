@@ -7,6 +7,9 @@ of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
 import datetime, os, re, subprocess, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402,F401  (UTF-8 output)
+
 OPEN_STEP = {"todo", "running", "testing", "fixing", "blocked"}
 
 

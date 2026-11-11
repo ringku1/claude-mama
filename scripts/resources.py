@@ -13,6 +13,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402,F401  (UTF-8 output)
+
 CAP = 8
 
 
@@ -20,7 +23,7 @@ def free_ram_gb():
     """Available memory in GB, or None if this OS can't tell."""
     try:
         if os.path.exists("/proc/meminfo"):  # Linux
-            m = re.search(r"MemAvailable:\s+(\d+) kB", open("/proc/meminfo").read())
+            m = re.search(r"MemAvailable:\s+(\d+) kB", open("/proc/meminfo", encoding="utf-8").read())
             return int(m.group(1)) / 1048576 if m else None
         if sys.platform == "darwin":  # free + inactive + speculative pages are available
             out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
