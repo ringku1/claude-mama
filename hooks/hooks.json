@@ -1,0 +1,14 @@
+{
+  "description": "mama: keep the goal across compaction and check it before a session stops",
+  "hooks": {
+    "PreCompact": [
+      { "hooks": [{ "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mama-hook.py\" precompact", "shell": "bash", "timeout": 10 }] }
+    ],
+    "SessionStart": [
+      { "matcher": "compact", "hooks": [{ "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mama-hook.py\" sessionstart", "shell": "bash", "timeout": 10 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mama-hook.py\" stop", "shell": "bash", "timeout": 10 }] }
+    ]
+  }
+}

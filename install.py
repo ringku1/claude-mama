@@ -13,6 +13,10 @@ Claude's folder is $CLAUDE_CONFIG_DIR when set, else ~/.claude (%USERPROFILE%\\.
    `python3`-vs-`python` differences matter. Other settings are kept; the first time, the original is saved
    as settings.json.bak (never overwritten later). An unreadable settings.json is left untouched.
    Safe to re-run.
+
+mama can instead be installed as a Claude Code plugin (claude plugin install mama@claude-mama), which brings
+the same skill and hooks. Only one route may be active: when settings.json enables a mama plugin, this
+script removes any hooks it registered earlier, links nothing, and exits 1 saying which route to keep.
 """
 import json
 import os
@@ -32,6 +36,18 @@ CLAUDE = os.path.abspath(  # one separator style (mklink reads "/x" as a switch)
 DEST = os.path.join(CLAUDE, "skills", "mama")
 SETTINGS = os.path.join(CLAUDE, "settings.json")
 EVENTS = {"PreCompact": ("precompact", None), "SessionStart": ("sessionstart", "compact"), "Stop": ("stop", None)}
+
+
+def plugin_enabled():
+    """(enabledPlugins key of an enabled mama plugin, whether settings.json still has our hooks), or (None, False)."""
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            settings = json.load(f)
+        enabled = settings.get("enabledPlugins")
+        plugin = next((k for k, v in enabled.items() if k.split("@")[0] == "mama" and v is True), None)
+        return plugin, bool(plugin) and is_mama(settings.get("hooks", {}))
+    except (OSError, ValueError, AttributeError):
+        return None, False
 
 
 def link_skill():
@@ -95,6 +111,17 @@ def main():
     if not shutil.which("git"):
         sys.exit("mama needs git on PATH")
     remove = "--remove" in sys.argv[1:]
+    plugin, ours = (None, False) if remove else plugin_enabled()
+    if plugin:
+        if ours:  # a one-liner install from before the plugin would run every hook twice
+            try:
+                update_hooks(remove=True)
+            except OSError as e:
+                sys.exit(f"mama: {e}")
+            sys.stdout.flush()
+        sys.exit(f"mama: the {plugin} plugin is enabled and already brings the skill and hooks, so none were added here"
+                 f"{' (the ones added earlier were removed)' if ours else ''}. "
+                 f"Use one route: keep the plugin and delete {DEST}, or run  claude plugin uninstall {plugin}  and run this again.")
     try:
         if not remove:
             link_skill()

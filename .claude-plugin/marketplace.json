@@ -1,0 +1,12 @@
+{
+  "name": "claude-mama",
+  "description": "mama, a goal-based work loop for Claude Code",
+  "owner": { "name": "ringku1", "url": "https://github.com/ringku1" },
+  "plugins": [
+    {
+      "name": "mama",
+      "source": "./",
+      "description": "Goal-based work loop: research, questions, plan, then dev → test → fix until every done-criterion has evidence."
+    }
+  ]
+}
