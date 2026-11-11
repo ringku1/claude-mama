@@ -4,14 +4,14 @@
 Reads the hook JSON on stdin. Never fails loudly: any error → exit 0 with no output, plus one
 line (time, mode, error) appended to ~/.claude/mama/hook-errors.log.
 
-This session's goals are the ones it recorded writing to (activity.log, any store). Only a
-session with no records at all has its transcript read, and then only goals in the cwd's store
-that no session recorded count — a goal another session recorded is never claimed by guess.
+This session's goals are the ones it recorded writing to (activity.log, any store). No record,
+no goal — the hooks never read transcripts to guess ownership.
 
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
 - stop:         blocks the stop (with every problem listed) if this session's goal:
+                is `running` at ≥70% of its budget ceiling (ask: continue / cut scope / stop);
                 is `running` without a final `wait` log line; reached a milestone after overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
                 or says `done` while close-check.py fails. The same problem list blocks only once
@@ -99,7 +99,7 @@ def session_id(inp):
     return inp.get("session_id") or os.path.splitext(os.path.basename(inp.get("transcript_path") or ""))[0]
 
 
-def session_goals(inp, store):
+def session_goals(inp):
     """Goals (dicts) this session wrote to, most recent last, in any store — only from
     activity.log, which every goal write records. No record, no goal: guessing from the
     transcript misattributed goals and read huge transcripts on every turn."""
@@ -253,7 +253,7 @@ def main(mode):
     cwd = inp.get("cwd") or os.getcwd()
     root = main_checkout(cwd)
     store = activity.canon(os.path.join(root, ".claude", "mama")) if root else None
-    mine = session_goals(inp, store)
+    mine = session_goals(inp)
     mine_open = [g for g in mine if g["status"] in OPEN]
     my_goal = mine_open[-1] if mine_open else None
 

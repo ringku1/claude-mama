@@ -68,7 +68,7 @@ Your notes in each project are kept either way.
 
 | | One line | Plugin |
 | --- | --- | --- |
-| **Update** | paste the same install line again | `claude plugin marketplace update claude-mama` (new releases raise the version in `.claude-plugin/plugin.json`) |
+| **Update** | paste the same install line again | `claude plugin marketplace update claude-mama`, then `claude plugin update mama@claude-mama`, then restart Claude Code (new releases raise the version in `.claude-plugin/plugin.json`) |
 | **Remove** | macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh \| bash -s -- --uninstall`<br>Windows: `$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 \| iex` | `claude plugin uninstall mama@claude-mama` |
 
 ## If something goes wrong
@@ -112,14 +112,14 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 ### Where things live
 
 - **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
-- **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it), and `activity.log`, used to measure cost.
+- **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it), and `activity.log`, which records which session wrote to which piece of work. It decides which work the hooks treat as a session's own, and cost counts the sessions recorded there (plus a transcript scan only for work started before `activity.log` existed).
 - **The skill:** `SKILL.md` (the flow), `rules/`, `scripts/`, `hooks/`, `templates/`.
 
 ### Settings you may want to change
 
 - **Subagent model:** `model: opus`, `effort: medium`, set in `rules/agents.md`.
 - **Agents at once:** up to 8 that build (fewer if CPU or memory is short) and 8 read-only, set in `scripts/resources.py`.
-- **Budgets:** S up to 300k tokens, M up to 1M, L a number you set. The references in `rules/planning.md` come from real runs on one project; yours are learned in `lessons.md`.
+- **Budgets:** S up to 300k tokens, M up to 1M, L a number with a unit you set (`L 800k`, `L 1.5M`). The references in `rules/planning.md` come from real runs on one project; yours are learned in `lessons.md`.
 
 ### Not supported
 

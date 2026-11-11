@@ -5,7 +5,6 @@ Usage:
   plan-set.py <plan.md> S3 status=done end=now "notes=★ D2"     # a Steps row (now = real HH:MM)
   plan-set.py <plan.md> C1 "evidence=go test ./... ok @11:40"     # a Criteria row
   plan-set.py <plan.md> --header status=waiting pr=none           # header fields
-  plan-set.py <plan.md> --progress                                # only recompute
   plan-set.py <plan.md> S+ kind=build "title=…" deps=S2 "verify=…" est=15m   # add a step (next id)
   plan-set.py <plan.md> C+ "criterion=…" "proven by=S7"                       # add a criterion
   plan-set.py <plan.md> P+ "text=student side: no design yet"                 # park an out-of-scope idea
@@ -18,7 +17,7 @@ Guards (they enforce the skill's rules, so state can't drift):
 - a step set to running whose deps aren't done prints a WARNING
 - header status approved/running needs mode checkpointed|autonomous|quick (ask the user); the first
   approval of a full goal also needs an `E research` log line (rules/research.md) and a budget ceiling
-- budget is always `~<spent>k / <size>`, size S, M or `L <n>` (e.g. `L 1.5M`): the Stop hook measures
+- budget is always `~<spent>k / <size>`, size S, M or `L <n>k|M` (e.g. `L 800k`, `L 1.5M`): the Stop hook measures
   the spend part and reads the ceiling from the size, so neither can be dropped
 - pr is one of ask-at-end | auto | none | declined | <url>
 - a hand-typed end earlier than start is refused (a step that crossed midnight: end=now)
@@ -228,7 +227,7 @@ def guard_header(path, lines, updates):
     budget = updates.get("budget", header_value(lines, "budget"))
     if first_go and mode != "quick" and not SIZE.fullmatch(budget.split("/")[-1].strip()):
         sys.exit("REFUSED: no budget ceiling. Set the size with the approval: budget=S, budget=M "
-                 "or budget='L <n>' (e.g. 'L 1.5M').")
+                 "or budget='L <n>k|M' (e.g. 'L 800k', 'L 1.5M').")
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
         subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)
@@ -247,8 +246,8 @@ def budget_value(cur, new):
     current one is kept (a typed one only when there is none yet); only the size is yours to set."""
     size = new.split("/", 1)[1].strip() if "/" in new else new.strip()
     if not SIZE.fullmatch(size):
-        hint = " — L needs a number" if size.startswith("L") else ""
-        sys.exit(f"REFUSED: budget size {size!r}{hint}; use S, M or 'L <n>', e.g. budget='L 1.5M'")
+        hint = " — L needs a number with a unit (k or M)" if size.startswith("L") else ""
+        sys.exit(f"REFUSED: budget size {size!r}{hint}; use S, M or 'L <n>k|M', e.g. budget='L 800k' or 'L 1.5M'")
     m = SPENT.search(cur.split("/")[0]) if "/" in cur else None
     m = m or (SPENT.search(new.split("/")[0]) if "/" in new else None)
     return f"{m.group(0) if m else '~0k'} / {size}"
@@ -320,7 +319,7 @@ def edit(path, what, updates):
         set_row(lines, "## Criteria", what, updates)
     elif what.startswith("S"):
         milestone = set_row(lines, "## Steps", what, updates)
-    elif what != "--progress":
+    else:
         sys.exit(f"unknown target {what!r}")
     progress(lines)
     fileio.write_atomic(path, "\n".join(lines))

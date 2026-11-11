@@ -4,8 +4,9 @@
 The skill's writers (log.py, plan-set.py, new-goal.py) call record(<goal dir>). Claude Code
 gives every shell the session's id in CLAUDE_CODE_SESSION_ID, so each write appends
 `<iso time> <session id> <goal dir>` to ~/.claude/mama/activity.log (only when the
-session's current goal changes). Spend and the hooks read it; goals from before it
-existed fall back to reading the transcripts (spend.written_slugs).
+session's current goal changes). Spend and the hooks read it. Only spend.py falls back to
+reading transcripts, for goals older than activity.log (spend.written_slugs); the hooks never do.
+Without CLAUDE_CODE_SESSION_ID nothing is recorded and a warning goes to stderr.
 
 Usage: activity.py [<session id>]   # print that session's (or every) goal switches
 """
@@ -17,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402
 
 PATH = os.path.expanduser("~/.claude/mama/activity.log")
+WARNED = False  # the missing-session warning prints once per script run
 
 
 def canon(path):
@@ -45,6 +47,11 @@ def entries():
 def record(goal_dir):
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not sid:
+        global WARNED
+        if not WARNED:
+            WARNED = True
+            print("mama: CLAUDE_CODE_SESSION_ID is unset — this write is not recorded in activity.log, "
+                  "so no session owns the goal (hooks and spend ignore it).", file=sys.stderr)
         return
     goal_dir = canon(goal_dir)
     os.makedirs(os.path.dirname(PATH), exist_ok=True)

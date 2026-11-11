@@ -22,6 +22,7 @@ WATCH = "## Watching (fewer than 3 observations)"
 GOALS = "## Goals and estimates"
 DEFAULT = "How you like things done"
 STREAK = "contradicted last time"  # marks one contra since the last seen
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "patterns.md")
 
 
 def find(lines, text):
@@ -53,6 +54,16 @@ def section_of(lines, i):
     return ""
 
 
+def fresh():
+    """A new patterns.md from templates/patterns.md: its sections, without the comment or examples."""
+    try:
+        t = open(TEMPLATE, encoding="utf-8").read()
+    except OSError:
+        return ["# How you work", ""]
+    t = re.sub(r"<!--.*?-->\s*", "", t, flags=re.S)
+    return [l for l in t.split("\n") if not l.startswith("- <")]
+
+
 def main():
     if len(sys.argv) < 3 or sys.argv[1] not in {"seen", "contra", "stated", "goal"}:
         sys.exit(__doc__)
@@ -61,7 +72,7 @@ def main():
     today = datetime.date.today().isoformat()
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
     with open(LOCK, "a+") as lk, fileio.locked(lk):
-        lines = open(PATH, encoding="utf-8").read().split("\n") if os.path.exists(PATH) else ["# How you work", ""]
+        lines = open(PATH, encoding="utf-8").read().split("\n") if os.path.exists(PATH) else fresh()
         if kind == "goal":
             insert(lines, GOALS, f"- {text} — last {today}")
             out = lines[[i for i, l in enumerate(lines) if l.startswith(f"- {text}")][-1]]

@@ -8,7 +8,7 @@ goal's life (`started:` to its last log line, or now if open): main thread + the
 started then; input + cache-creation + output tokens per API message (cache reads excluded:
 they re-read context already paid for). Time before activity.log existed is read from the
 transcripts (written_slugs). A session that never wrote to the goal adds nothing.
-Prints `spend=<n>k pct=<p>` (pct of the size ceiling S 300k / M 1M / L <n>); --write puts
+Prints `spend=<n>k pct=<p>` (pct of the size ceiling S 300k / M 1M / L <n>k|M); --write puts
 `~<n>k` into the plan header's budget field.
 
 One pass per transcript, cached in <goal>/.spend-cache.json (per file: size, offset read,
@@ -358,9 +358,10 @@ def main():
     pct = round(100 * total / c) if c else -1
     print(f"spend={k}k pct={pct}" + ("" if c else "  (size has no ceiling: write L as e.g. 'L 1.5M')"))
     if "--write" in sys.argv:
-        text = open(plan, encoding="utf-8").read()
-        text = re.sub(r"(budget: )[^/|\n]*(/)", rf"\g<1>~{k}k \g<2>", text, count=1)
-        fileio.write_atomic(plan, text)
+        with fileio.plan_lock(plan):  # same lock as plan-set and the Stop hook
+            text = open(plan, encoding="utf-8").read()
+            text = re.sub(r"(budget: )[^/|\n]*(/)", rf"\g<1>~{k}k \g<2>", text, count=1)
+            fileio.write_atomic(plan, text)
 
 
 if __name__ == "__main__":

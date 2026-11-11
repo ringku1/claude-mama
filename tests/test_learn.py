@@ -26,6 +26,16 @@ class Learn(Base):
             return None, None
         return next(l for l in reversed(lines[:i]) if l.startswith("## ")), lines[i]
 
+    def test_new_file_from_template(self):
+        self.learn("seen")
+        text = open(self.path(), encoding="utf-8").read()
+        self.assertTrue(text.startswith("# How you work"), text)
+        for h in ("## Choices you make", LEARNED, "## Corrections you've made", "## Goals and estimates", WATCH):
+            self.assertIn(h, text)
+        self.assertNotIn("<!--", text)
+        self.assertNotIn("<e.g.", text)
+        self.assertEqual(self.section()[0], WATCH)
+
     def test_one_contra_keeps_learned(self):
         for _ in range(4):
             self.learn("seen")

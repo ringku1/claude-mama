@@ -10,7 +10,7 @@ Goals, tests and wishes change. Handle each change so finished work isn't lost a
 3. **Unclear request** → one AskUserQuestion batch (`rules/questions.md`), nothing more.
 4. **Draft the diff** — classify each part (goal / test / deliverable, sections below) and list: steps added, altered, made obsolete; criteria added or changed; decisions to revisit; effect on time and budget size.
 5. **Approve:** show the diff as one compact table (change · step · effect). Material change (new area, bigger size, a done step reopened, a decision reversed) → AskUserQuestion: apply (recommended) / change something. Small → apply and say so in one line.
-6. **Apply** only with `plan-set.py`: new rows `S+` / `C+` (next id, verify required), altered rows `S3 key=…`, dropped work `status=obsolete "notes=dropped: <why>"` — never delete rows or rewrite done steps. Size grew → `--header budget=M` (or `budget='L <n>'`); the measured spend part is kept.
+6. **Apply** only with `plan-set.py`: new rows `S+` / `C+` (next id, verify required), altered rows `S3 key=…`, dropped work `status=obsolete "notes=dropped: <why>"` — never delete rows or rewrite done steps. Size grew → `--header budget=M` (or `budget='L <n>k|M'`); the measured spend part is kept.
 7. **Record:** `log.py E "change: <what> — +S9,S10; S4 obsolete; D3 revisit"`, plus a `D` line (`tag: user`) per user choice, then `learn.py` or `E learn none`.
 8. **Resume:** regenerate overview.md (Goal section current, "What changed along the way" gets one line), restore the status the goal had (running → continue the loop at the next ready step; waiting/paused → stay).
 
