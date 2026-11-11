@@ -419,6 +419,64 @@ class Lean(Base):
         self.assertEqual(len(self.cc().commit_problems(g, head)), 1)
 
 
+class Upgrades(Base):
+    def mod(self, name, file):
+        import importlib.util
+        sys.path.insert(0, S)
+        spec = importlib.util.spec_from_file_location(name, os.path.join(S, file))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_failed_write_keeps_old_file(self):
+        fio = self.mod("fileio", "fileio.py")
+        p = os.path.join(self.tmp, "patterns.md")
+        open(p, "w").write("precious\n")
+
+        real = os.fsync
+        os.fsync = lambda fd: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+        try:
+            with self.assertRaises(OSError):
+                fio.write_atomic(p, "new text")
+        finally:
+            os.fsync = real
+        self.assertEqual(self.read(p), "precious\n")
+        self.assertEqual([f for f in os.listdir(self.tmp) if f.startswith(".tmp-")], [])
+        fio.write_atomic(p, "new text")
+        self.assertEqual(self.read(p), "new text")
+
+    def test_overnight_gap_is_idle(self):
+        cc = self.mod("cc", "close-check.py")
+        log = ("E1 17:00 start\nE2 17:30 wait agent\nE3 18:28 agent done\n"
+               "D1 09:11 continue | tag: user\nE4 09:40 done\n")
+        self.assertEqual(cc.waiting_minutes(log), (24 * 60 - 18 * 60 - 28) + 9 * 60 + 11)
+        # a long agent run with log lines inside two hours is work, not idle
+        self.assertEqual(cc.waiting_minutes("E1 13:26 wait merge agent\nE2 14:52 merge done\n"), 0)
+
+    def test_repeated_wait_line_written_once(self):
+        g = self.new_goal()
+        log = os.path.join(g, "log.md")
+        for _ in range(3):
+            self.run_s("log.py", log, "E", "wait S5 API agent")
+        self.run_s("log.py", log, "E", "wait final gate")
+        self.assertEqual(len(re.findall(r"wait S5 API agent", self.read(log))), 1)
+        self.assertEqual(len(re.findall(r"wait final gate", self.read(log))), 1)
+
+    def test_precompact_logs_compaction(self):
+        g = self.new_goal()
+        self.fill_steps(g)
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=running", "mode=autonomous")
+        inp = {"cwd": self.repo, "session_id": "sess-a", "trigger": "auto",
+               "transcript_path": os.path.join(self.home, ".claude", "projects", "p", "sess-a.jsonl")}
+        r = subprocess.run([sys.executable, HOOK, "precompact"], input=json.dumps(inp), capture_output=True,
+                           text=True, env=self.env(None))
+        self.assertIn("keep: the slug 'demo'", r.stdout)
+        self.assertRegex(self.read(os.path.join(g, "log.md")), r"E\d+ \d\d:\d\d compaction \(auto\)\n")
+        cc = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True,
+                            text=True, env=self.env())
+        self.assertIn("compactions 1", cc.stdout)
+
+
 if __name__ == "__main__":
     import warnings
     warnings.simplefilter("ignore", ResourceWarning)

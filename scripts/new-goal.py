@@ -10,6 +10,9 @@ Template comments are stripped. Prints the goal folder path.
 """
 import datetime, os, re, subprocess, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TPL = os.path.join(HERE, "..", "templates")
 
@@ -56,12 +59,12 @@ def main():
     head, sep, rest = plan.partition("\n## ")
     head = re.sub(r"(\w[\w ]*?): <[^>]*>", r"\1: —", head)  # unknown yet → —, set when known
     plan = head + sep + rest
-    open(os.path.join(goal, "plan.md"), "w", encoding="utf-8").write(plan)
+    fileio.write_atomic(os.path.join(goal, "plan.md"), plan)
 
     raw = open(os.path.join(TPL, "overview.md"), encoding="utf-8").read()
     rules = re.search(r"<!--(.*?)-->", raw, re.S)
     ov = QUICK_OVERVIEW if quick else strip_comments(raw)
-    open(os.path.join(goal, "overview.md"), "w", encoding="utf-8").write(ov)
+    fileio.write_atomic(os.path.join(goal, "overview.md"), ov)
 
     open(os.path.join(goal, "log.md"), "w", encoding="utf-8").close()
     subprocess.run([sys.executable, os.path.join(HERE, "log.py"), os.path.join(goal, "log.md"), "E",

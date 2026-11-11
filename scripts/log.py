@@ -5,7 +5,7 @@ Usage: log.py <log.md> <E|D|F|Q> "<text>"
   log.py log.md E "dispatch S1"
   log.py log.md D "decision | Q1 output | react-markdown | why: ... | tag: user"
   log.py log.md F "finding | <claim> | <file:line> | verified"
-Prints the line written. IDs and times are never typed by hand, so they can't drift.
+Prints the line written; a `wait` line identical to the last line is not written again. IDs and times are never typed by hand, so they can't drift.
 """
 import datetime
 import fcntl
@@ -25,6 +25,10 @@ def main():
         fcntl.flock(f, fcntl.LOCK_EX)
         f.seek(0)
         content = f.read()
+        last = [l for l in content.splitlines() if l.strip()][-1:]
+        if kind == "E" and text.startswith("wait") and last and re.sub(r"^E\d+ \d\d:\d\d ", "", last[0]) == text:
+            print(last[0])  # still waiting on the same thing: one line is enough
+            return
         ids = [int(n) for n in re.findall(rf"^{kind}(\d+) ", content, re.M)]
         line = f"{kind}{max(ids, default=0) + 1} {datetime.datetime.now():%H:%M} {text}"
         if content and not content.endswith("\n"):

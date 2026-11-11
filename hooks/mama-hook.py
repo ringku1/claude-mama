@@ -4,7 +4,7 @@
 Reads the hook JSON on stdin. Never fails loudly: any error → exit 0 with no output,
 so a broken hook can't disrupt a session.
 
-- precompact:   tells the compaction summary to keep this session's mama goal (slug, paths).
+- precompact:   logs `E compaction` in this session's goal and tells the summary to keep it (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
 - stop:         blocks the stop once (with every problem listed) if this session's goal:
                 is `running` without a final `wait` log line; has plan.md newer than overview.md;
@@ -153,7 +153,7 @@ def measure_budget(plan, transcript):
     text = open(plan, encoding="utf-8").read()
     new = re.sub(r"(budget: )~?[^/|\n]*(/)", rf"\g<1>~{round(total / 1000)}k \g<2>", text, count=1)
     if new != text:
-        open(plan, "w", encoding="utf-8").write(new)
+        sp.fileio.write_atomic(plan, new)
         os.utime(plan, (st.st_atime, st.st_mtime))
     c = sp.ceiling(size)
     return round(100 * total / c) if c else None
@@ -201,7 +201,8 @@ def main():
         if g["status"] == "running" and pct is not None and pct >= 70:
             problems.append(
                 f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
-                "continue (then raise the size, e.g. budget='~…k / L 1.5M') / cut scope / stop.")
+                "continue / cut scope / stop. On continue, raise the ceiling with headroom — at least the measured "
+                "spend + what's left estimated + 30% (e.g. budget='~…k / L 1.5M') — so it doesn't re-ask every turn.")
         if g["status"] == "running" and not waiting_on_background(g["plan"]):
             problems.append(
                 f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
@@ -232,6 +233,12 @@ def main():
 
     if mode == "precompact":
         if my_goal:
+            try:  # count it: the metrics line reads compactions from the log
+                log_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "log.py")
+                subprocess.run([sys.executable, log_py, os.path.join(os.path.dirname(my_goal["plan"]), "log.md"), "E",
+                                f"compaction ({inp.get('trigger', 'auto')})"], capture_output=True, timeout=10)
+            except Exception:
+                pass
             print(
                 f"This session is running the mama goal '{my_goal['slug']}'. In the summary, keep: "
                 f"the slug '{my_goal['slug']}', its tracking folder {store}/{my_goal['slug']}/, "

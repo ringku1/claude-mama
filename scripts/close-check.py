@@ -26,13 +26,21 @@ def minutes(hhmm):
     return h * 60 + m
 
 
+IDLE_GAP = 120  # minutes with no log line and no user wait open: the session sat idle (overnight, away)
+
+
 def waiting_minutes(log):
-    """Minutes spent waiting for the user: a question (Q) or a stop for them (`E waiting`,
-    `checkpoint`, `asked`) until their next live answer (`D … tag: user`, not one settled
-    "from patterns") or `E resume`."""
+    """Minutes not spent working: waiting for the user — a question (Q) or a stop for them
+    (`E waiting`, `checkpoint`, `asked`) until their next live answer (`D … tag: user`, not one
+    settled "from patterns") or `E resume` — plus any gap of over IDLE_GAP minutes between log
+    lines (no agent runs that long without a log line; the session sat idle)."""
     lines = re.findall(r"^([EDFQ])\d+ (\d\d:\d\d) (.*)$", log, re.M)
-    total, since = 0, None
+    total, since, prev = 0, None, None
     for kind, t, text in lines:
+        gap = (minutes(t) - minutes(prev)) % (24 * 60) if prev else 0
+        prev = t
+        if since is None and gap > IDLE_GAP:
+            total += gap
         if since is None and (kind == "Q" or (kind == "E" and re.match(r"(waiting|checkpoint|ask)", text)) or
                               (kind == "E" and "asked" in text)):
             since = t

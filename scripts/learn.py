@@ -13,6 +13,9 @@ Sections: "Choices you make", "How you like things done", "Corrections you've ma
 """
 import datetime, fcntl, os, re, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fileio  # noqa: E402
+
 PATH = os.path.expanduser("~/.claude/mama/patterns.md")
 LOCK = os.path.expanduser("~/.claude/mama/.patterns.lock")
 WATCH = "## Watching (fewer than 3 observations)"
@@ -74,7 +77,7 @@ def main():
                     print(f"NOTE: the user went against a stated preference — ask once if it changed: {text}")
                 lines.insert(i, re.sub(r" — last \S+$", f" — last {today}", old))
                 text_out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
-                open(PATH, "w", encoding="utf-8").write(text_out.rstrip("\n") + "\n")
+                fileio.write_atomic(PATH, text_out.rstrip("\n") + "\n")
                 print(lines[i])
                 return
             n, m = 0, 0
@@ -100,7 +103,7 @@ def main():
                 insert(lines, where, line)
             out = line or ""
         text_out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
-        open(PATH, "w", encoding="utf-8").write(text_out.rstrip("\n") + "\n")
+        fileio.write_atomic(PATH, text_out.rstrip("\n") + "\n")
     print(out)
 
 

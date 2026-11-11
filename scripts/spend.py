@@ -12,6 +12,7 @@ import datetime, glob, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
+import fileio  # noqa: E402
 
 CEIL = {"S": 300_000, "M": 1_000_000}
 
@@ -254,7 +255,7 @@ def main():
     if "--write" in sys.argv:
         text = open(plan, encoding="utf-8").read()
         text = re.sub(r"(budget: )[^/|\n]*(/)", rf"\g<1>~{k}k \g<2>", text, count=1)
-        open(plan, "w", encoding="utf-8").write(text)
+        fileio.write_atomic(plan, text)
 
 
 if __name__ == "__main__":
