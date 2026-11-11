@@ -112,6 +112,10 @@ def commit_problems(goal, head):
     out = _git(goal, "log", "--format=%H%x00%ct%x00%B%x01", *since, rev)
     if out is None:
         return []
+    # loop words that name files this repo tracks (mama's own repo has templates/plan.md) are its vocabulary
+    tracked = (_git(goal, "ls-files", "--full-name", ":/") or "").lower()
+    internal = [w for w in (r"\bmama\b", r"\bplan\.md\b") if not re.search(w, tracked)]
+    pattern = "|".join([r"Co-Authored-By:", r"Generated with \[?Claude", r"\b(step|criterion) [SC]\d+\b"] + internal)
     bad = []
     for entry in out.split("\x01"):
         if entry.count("\x00") < 2:
@@ -119,7 +123,7 @@ def commit_problems(goal, head):
         sha, ct, msg = entry.strip().split("\x00", 2)
         if start and int(ct) < start.timestamp():
             continue
-        if re.search(r"Co-Authored-By:|Generated with \[?Claude|\bmama\b|\bplan\.md\b|\b(step|criterion) [SC]\d+\b", msg, re.I):
+        if re.search(pattern, msg, re.I):
             bad.append(sha[:9])
     return [f"commits carry attribution or loop internals ({', '.join(bad[:5])}) — reword before push"] if bad else []
 

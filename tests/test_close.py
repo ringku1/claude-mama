@@ -98,6 +98,18 @@ class Commits(CloseBase):
         self.assertEqual(len(out), 1, out)
         self.assertEqual(len(re.findall(r"[0-9a-f]{9}", out[0])), 1, out)  # only the new one
 
+    def test_loop_words_that_name_tracked_files_are_allowed(self):
+        self.setup_repo()
+        g = self.ready_goal(base="main", branch="main")
+        self.git("commit", "-q", "--allow-empty", "-m", "fix: the plan.md parser")
+        self.assertEqual(len(self.problems(g)), 1)  # plan.md isn't this repo's file: a loop internal
+        os.makedirs(os.path.join(self.repo, "templates"), exist_ok=True)
+        with open(os.path.join(self.repo, "templates", "plan.md"), "w") as f:
+            f.write("x\n")
+        self.git("add", "templates/plan.md")
+        self.git("commit", "-q", "-m", "feat: add the plan template")
+        self.assertEqual(self.problems(g), [])  # now it names a tracked file: product vocabulary
+
     def test_no_branch_skips(self):
         self.setup_repo()
         g = self.ready_goal(base="n/a", branch="n/a")
