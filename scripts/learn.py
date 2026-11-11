@@ -3,7 +3,7 @@
 
 Usage:
   learn.py seen    "<pattern>" [section]   # one more consistent observation (new → Watching 1/1)
-  learn.py contra  "<pattern>"             # the user did the opposite (count down; 2 in a row → Watching)
+  learn.py contra  "<pattern>"             # the user did the opposite (count down; twice in a row → Watching)
   learn.py stated  "<pattern>" [section]   # the user said it outright → learned at once
   learn.py goal    "<what it was> (<type>, <n> steps): est <m>m / <size>, actual <m>m / ~<n>k"
 
@@ -21,6 +21,7 @@ LOCK = os.path.expanduser("~/.claude/mama/.patterns.lock")
 WATCH = "## Watching (fewer than 3 observations)"
 GOALS = "## Goals and estimates"
 DEFAULT = "How you like things done"
+STREAK = "contradicted last time"  # marks one contra since the last seen
 
 
 def find(lines, text):
@@ -79,22 +80,25 @@ def main():
                 fileio.write_atomic(PATH, text_out.rstrip("\n") + "\n")
                 print(lines[i])
                 return
-            n, m = 0, 0
+            n, m, streak = 0, 0, 0
             if old:
                 c = re.search(r" — (\d+)/(\d+) — ", old)
                 if c:
                     n, m = int(c.group(1)), int(c.group(2))
                 elif " — stated — " in old:
                     n, m = 3, 3
+                streak = 1 if STREAK in old else 0
             if kind == "stated":
                 line, where = f"- {text} — stated — last {today}", (section if where == WATCH or not old else where)
             else:
+                # a seen resets the contradiction streak; two contras in a row demote a learned line
                 n, m = (n + 1, m + 1) if kind == "seen" else (max(n - 1, 0), m + 1)
-                if kind == "contra" and where != WATCH and n < 3:
-                    where = WATCH
+                streak = streak + 1 if kind == "contra" else 0
+                if kind == "contra" and where != WATCH and streak >= 2:
+                    where, streak = WATCH, 0
                 if kind == "seen" and where == WATCH and n >= 3:
                     where = section
-                line = f"- {text} — {n}/{m} — last {today}"
+                line = f"- {text} — {n}/{m}" + (f" — {STREAK}" if streak else "") + f" — last {today}"
                 if n == 0 and m >= 2:
                     print(f"dropped: {text} (contradicted)")
                     line = None
