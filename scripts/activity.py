@@ -74,6 +74,13 @@ def sessions_for(goal_dir):
     return list(dict.fromkeys(s for _, s, g in entries() if g == goal_dir))
 
 
+def goals_of(sid):
+    """Goal dirs (canonical, any store) this session wrote to, oldest first, by first write.
+    Only recorded writes count: hooks write with log.write(record=False) / log.py --no-record,
+    so an event line (a compaction, say) never makes a goal the session's."""
+    return list(dict.fromkeys(g for _, s, g in entries() if s == sid))
+
+
 def goals_for(sid):
     """Goal dirs this session wrote to, ordered by last write (most recent last)."""
     order = {}
