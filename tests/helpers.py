@@ -65,4 +65,5 @@ class Base(unittest.TestCase):
         s = self.read(p)
         s = re.sub(r"^\| C1 .*$", "| C1  | it works | S1 | — |", s, flags=re.M)
         s = re.sub(r"^\| S1 .*$", "| S1  | build | thing | — | a.go | go test | todo | 0 | 10m |  |  |  |", s, flags=re.M)
+        s = s.replace("budget: ~0k / —", "budget: ~0k / M")  # a full goal's approval needs a ceiling
         open(p, "w", encoding="utf-8").write(s)

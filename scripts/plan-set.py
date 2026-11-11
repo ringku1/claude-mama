@@ -17,12 +17,17 @@ Guards (they enforce the skill's rules, so state can't drift):
 - a step set to running/testing/fixing gets start=now if empty; done/obsolete gets end=now if empty
 - a step set to running whose deps aren't done prints a WARNING
 - header status approved/running needs mode checkpointed|autonomous|quick (ask the user); the first
-  approval of a full goal also needs an `E research` log line (rules/research.md)
+  approval of a full goal also needs an `E research` log line (rules/research.md) and a budget ceiling
+- budget is always `~<spent>k / <size>`, size S, M or `L <n>` (e.g. `L 1.5M`): the Stop hook measures
+  the spend part and reads the ceiling from the size, so neither can be dropped
+- pr is one of ask-at-end | auto | none | declined | <url>
+- a hand-typed end earlier than start is refused (a step that crossed midnight: end=now)
 - header status done runs close-check.py and is refused until it prints OK
 - added rows get the next free id; a step needs title + verify, deps must exist; rows are never
   deleted (set status=obsolete with a reason in notes)
 - first switch to running with a linked Trello card and no `trello` log line prints a REMINDER
 - `now` stamps the real HH:MM in any row, added ones too; S+/C+ fill the template's blank row first
+- the whole read → edit → write holds fileio.plan_lock (the Stop hook writes the budget under it too)
 
 After every write it syncs overview.md's **Status:** line (scripts/overview.py) and, on a
 milestone (step done/blocked/dropped, goal status or PR changed, scope added mid-run), marks
@@ -43,6 +48,9 @@ from estimate import expand, summary  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
+PR_VALUES = ("ask-at-end", "auto", "none", "declined")
+SIZE = re.compile(r"[SM]|L \d+(?:\.\d+)?[kM]")
+SPENT = re.compile(r"~\d+(?:\.\d+)?k")
 
 LIVE_EXCLUDED = {"obsolete", "parked"}
 
@@ -81,26 +89,33 @@ def table(lines, section):
 def apply_updates(lines, rows, header, vals, row_id, updates):
     """Write updates into a row's values with the guards — the same for set and added rows."""
     col = {h: i for i, h in enumerate(header)}
+    stamped = set()  # columns set to the real time in this call
     for k, v in updates.items():
         if k not in col:
             sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
         vals[col[k]] = NOW() if v == "now" else v
+        if v == "now":
+            stamped.add(k)
     st = updates.get("status")
     if st and "status" in col:
         if st in ("running", "testing", "fixing") and "start" in col and not vals[col["start"]]:
             vals[col["start"]] = NOW()
+            stamped.add("start")
         if st in ("done", "obsolete") and "end" in col and not vals[col["end"]]:
             vals[col["end"]] = NOW()
+            stamped.add("end")
         if st == "running" and "deps" in col:
             done = {cells(lines[r])[0] for r in rows if cells(lines[r])[col["status"]] in ("done", "obsolete")}
             open_deps = [d for d in expand(vals[col["deps"]]) if d not in done]
             if open_deps:
                 print(f"WARNING: {row_id} started before its deps are done: {', '.join(open_deps)}")
-    if "start" in col and "end" in col:
+    if "start" in col and "end" in col and "end" not in stamped and ({"start", "end"} & (set(updates) | stamped)):
+        # the real time (end=now) is always right — a step may run past midnight or over days;
+        # only a hand-typed end can be earlier than its start by mistake
         a, b = vals[col["start"]], vals[col["end"]]
-        if re.fullmatch(r"\d\d:\d\d", a or "") and re.fullmatch(r"\d\d:\d\d", b or "") and b < a \
-                and not (a > "20:00" and b < "04:00"):
-            sys.exit(f"REFUSED: {row_id} end {b} is before start {a}")
+        if re.fullmatch(r"\d\d:\d\d", a or "") and re.fullmatch(r"\d\d:\d\d", b or "") and b < a:
+            sys.exit(f"REFUSED: {row_id} end {b} is before start {a}. Never type times: set end=now "
+                     "(a step that ran past midnight is fine with end=now).")
 
 
 MILESTONE_STEP = {"done", "blocked", "obsolete", "parked"}
@@ -191,13 +206,11 @@ def guard_header(path, lines, updates):
     if st in ("approved", "running") and mode not in MODES:
         sys.exit("REFUSED: mode is not set. Ask the user with the approval question "
                  "(approve · checkpointed / approve · autonomous), then set mode=… with the status.")
-    b = updates.get("budget", "")
-    cur = header_value(lines, "budget")
-    if b and "/" in b and "/" in cur:
-        # the spend part is measured by the Stop hook — keep it; only the size is yours to set
-        updates["budget"] = cur.split("/")[0].strip() + " / " + b.split("/", 1)[1].strip()
-    if re.search(r"/\s*L\s*$", b):
-        sys.exit("REFUSED: size L needs a number, e.g. budget='~0k / L 1.5M'")
+    if "budget" in updates:
+        updates["budget"] = budget_value(header_value(lines, "budget"), updates["budget"])
+    pr = updates.get("pr")
+    if pr is not None and pr not in PR_VALUES and not re.match(r"https?://\S+$", pr):
+        sys.exit(f"REFUSED: pr={pr!r}; use one of {' | '.join(PR_VALUES)} | <PR url>")
     if st == "done":
         check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "close-check.py")
         r = subprocess.run([sys.executable, check, os.path.dirname(os.path.abspath(path))],
@@ -212,6 +225,10 @@ def guard_header(path, lines, updates):
     if first_go and mode != "quick" and not re.search(r"^E\d+ \S+ research", log, re.M):
         sys.exit("REFUSED: no research recorded. Run the research lenses (rules/research.md), then log "
                  "`E research: <n> findings, <m> cases, <k> open` — or `E research none: <why>` if this goal needs none.")
+    budget = updates.get("budget", header_value(lines, "budget"))
+    if first_go and mode != "quick" and not SIZE.fullmatch(budget.split("/")[-1].strip()):
+        sys.exit("REFUSED: no budget ceiling. Set the size with the approval: budget=S, budget=M "
+                 "or budget='L <n>' (e.g. 'L 1.5M').")
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
         subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)
@@ -223,6 +240,18 @@ def guard_header(path, lines, updates):
         log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""
         if trello not in ("", "none", "—") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
             print("REMINDER: Trello card linked — post the start comment now (what this goal will change), log `trello`.")
+
+
+def budget_value(cur, new):
+    """`~<spent>k / <size>` from what was typed: the spend part is measured by the Stop hook, so the
+    current one is kept (a typed one only when there is none yet); only the size is yours to set."""
+    size = new.split("/", 1)[1].strip() if "/" in new else new.strip()
+    if not SIZE.fullmatch(size):
+        hint = " — L needs a number" if size.startswith("L") else ""
+        sys.exit(f"REFUSED: budget size {size!r}{hint}; use S, M or 'L <n>', e.g. budget='L 1.5M'")
+    m = SPENT.search(cur.split("/")[0]) if "/" in cur else None
+    m = m or (SPENT.search(new.split("/")[0]) if "/" in new else None)
+    return f"{m.group(0) if m else '~0k'} / {size}"
 
 
 def set_header(lines, updates):
@@ -258,9 +287,22 @@ def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     path, what = sys.argv[1], sys.argv[2]
-    lines = open(path, encoding="utf-8").read().split("\n")
     updates = parse_updates(sys.argv[3:])
     goal = os.path.dirname(os.path.abspath(path))
+    with fileio.plan_lock(path):  # the Stop hook writes the measured budget under the same lock
+        lines, milestone = edit(path, what, updates)
+    activity.record(goal)
+    if milestone:
+        overview.milestone(goal)
+    overview.sync(goal)
+    est = summary("\n".join(lines))
+    if est and what != "--header":
+        print(est)
+
+
+def edit(path, what, updates):
+    """Read, change and write plan.md; returns (lines, milestone). Runs under plan_lock."""
+    lines = open(path, encoding="utf-8").read().split("\n")
     milestone = False  # something the user would see changed: the overview's prose is due
     if what == "--header":
         before = {k: header_value(lines, k) for k in ("status", "pr")}
@@ -282,13 +324,7 @@ def main():
         sys.exit(f"unknown target {what!r}")
     progress(lines)
     fileio.write_atomic(path, "\n".join(lines))
-    activity.record(goal)
-    if milestone:
-        overview.milestone(goal)
-    overview.sync(goal)
-    est = summary("\n".join(lines))
-    if est and what != "--header":
-        print(est)
+    return lines, milestone
 
 
 if __name__ == "__main__":
