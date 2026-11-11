@@ -42,3 +42,44 @@ jobs:
           mkdir -p "$home"
           HOME="$home" USERPROFILE="$home" python install.py
           HOME="$home" USERPROFILE="$home" python -c "import json,os,sys; p=os.path.join(os.path.expanduser('~'),'.claude'); s=json.load(open(os.path.join(p,'settings.json'))); assert os.path.isfile(os.path.join(p,'skills','mama','SKILL.md')); assert all('mama-hook.py' in json.dumps(s['hooks'][k]) for k in ('PreCompact','SessionStart','Stop')); print('installed ok')"
+
+  one-line-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install, update, uninstall (macOS / Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export HOME="$RUNNER_TEMP/home" MAMA_REPO="$GITHUB_WORKSPACE"
+          mkdir -p "$HOME"
+          bash install.sh
+          bash install.sh | grep -q updating
+          test -f "$HOME/.claude/skills/mama/SKILL.md"
+          python3 -c "import json,os; s=json.load(open(os.path.expanduser('~/.claude/settings.json'))); assert all('mama-hook.py' in json.dumps(s['hooks'][k]) for k in ('PreCompact','SessionStart','Stop'))"
+          bash install.sh --uninstall
+          test ! -e "$HOME/.claude/skills/mama"
+          python3 -c "import json,os; assert 'mama-hook' not in open(os.path.expanduser('~/.claude/settings.json')).read()"
+      - name: Install, update, uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'home'
+          $env:MAMA_REPO = $env:GITHUB_WORKSPACE
+          New-Item -ItemType Directory -Force $env:USERPROFILE | Out-Null
+          Get-Content ./install.ps1 -Raw | Invoke-Expression
+          $out = Get-Content ./install.ps1 -Raw | Invoke-Expression 6>&1 | Out-String
+          if ($out -notmatch 'updating') { throw "second run did not update: $out" }
+          $mama = Join-Path $env:USERPROFILE '.claude\skills\mama'
+          if (-not (Test-Path (Join-Path $mama 'SKILL.md'))) { throw 'skill missing' }
+          $s = Get-Content (Join-Path $env:USERPROFILE '.claude\settings.json') -Raw
+          foreach ($k in 'PreCompact','SessionStart','Stop') { if ($s -notmatch $k) { throw "hook $k missing" } }
+          if ($s -notmatch 'mama-hook.py') { throw 'hooks not registered' }
+          $env:MAMA_UNINSTALL = 1
+          Get-Content ./install.ps1 -Raw | Invoke-Expression
+          if (Test-Path $mama) { throw 'skill folder not removed' }
+          if ((Get-Content (Join-Path $env:USERPROFILE '.claude\settings.json') -Raw) -match 'mama-hook') { throw 'hooks not removed' }

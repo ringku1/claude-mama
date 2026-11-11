@@ -1,90 +1,119 @@
-# mama — a goal-based work loop for Claude Code
+# mama — finish real work with Claude Code
 
 [![test](https://github.com/ringku1/claude-mama/actions/workflows/test.yml/badge.svg)](https://github.com/ringku1/claude-mama/actions/workflows/test.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-`mama` is a [Claude Code](https://code.claude.com) skill that runs a piece of work to completion. You give it a goal. It researches the code, asks you one batch of questions, plans, and then loops build → verify → fix with parallel agents until every done-criterion has evidence.
+You tell mama what you want done. It studies your code, asks you a few clear questions, makes a plan you approve, and then works until the job is finished and tested. You follow along in one short, plain-language page.
 
-Everything is tracked in plain files, so a goal survives compaction, crashes and new sessions. You follow along in one short, plain-language `overview.md`.
+Works on **macOS, Linux and Windows**.
+
+## Quick start
+
+**1. Install** — paste one line, and it sets up everything it needs.
+
+macOS or Linux (Terminal):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
+```
+
+**2. Restart Claude Code.**
+
+**3. Open your project in Claude Code and type** `/mama` followed by what you want:
 
 ```
-/mama add price filters to the course catalog
-/mama https://github.com/<org>/<repo>/issues/42
+/mama add a price filter to the course list
+/mama the login button does nothing — see https://github.com/you/app/issues/42
 /mama quick fix the typo on the pricing page
 ```
 
-## What it does
+That's it. mama asks you questions, shows you its plan before it starts, and tells you when it's done.
 
-- **Research before questions.** Parallel read-only agents map every part of the code the work touches, and every case it must handle (roles, states, limits, errors, existing data), before anything is asked.
-- **Questions once, with recommendations.** One batch, multiple choice, citing what research found. It learns your answers over time (`~/.claude/mama/patterns.md`).
-- **Plans wide, runs in parallel.** Steps own separate files, so as many as possible run at once. A quick first step writes any shared interface. The estimate is the critical path (the longest chain of dependent steps), not the sum.
-- **Evidence, not claims.** A step is done when its verify command passes, and a goal closes only when a close check passes.
-- **Measured cost.** Real token spend is read from the session transcripts. It stops and asks at 70% of the budget.
-- **Stays in its lane.**
-  - Each goal gets its own git worktree and branch.
-  - Delivery ends at `git push`; a PR is opened only with your OK.
-  - It never touches your running servers or shared databases.
-  - Commits carry no AI attribution lines.
+Don't have Claude Code yet? Get it at [code.claude.com](https://code.claude.com).
 
-## Requirements
+## Everyday use
 
-- Claude Code (CLI or IDE extension) on **Linux, macOS or Windows**.
-- Python 3.8+ and `git`. On Windows, Claude Code's Bash tool also needs [Git for Windows](https://git-scm.com/download/win) (Git Bash).
-- Work happens inside a git repository.
-
-It does not run in claude.ai chat or in Claude Code on the web: it needs your user-level skills and its hooks.
-
-## Install
-
-```bash
-git clone https://github.com/ringku1/claude-mama.git
-cd claude-mama
-python3 install.py        # Windows: py install.py
-```
-
-`install.py` does two things:
-- links the folder to `~/.claude/skills/mama`. That's a symlink on Linux and macOS, and a directory junction on Windows, which needs no admin rights.
-- adds three hooks (PreCompact, SessionStart on compact, Stop) to `~/.claude/settings.json`. It writes them with the absolute path of the Python you ran it with, so they don't depend on a shell or on `python3` being on PATH. It keeps your other settings and saves the old file as `settings.json.bak`.
-
-Restart Claude Code afterwards. To update, run `git pull`. Re-run the installer only if you moved the folder or your Python. To remove the hooks, run `python3 install.py --remove`.
-
-## Commands
-
-| Command | What it does |
+| Type | To |
 | --- | --- |
-| `/mama <goal>` | Start a goal. Input can be text, a file, a Trello card or a GitHub issue/PR. |
-| `/mama quick <task>` | A small task (≈ under 30 min): fewer questions, a 3-line overview. |
-| `/mama status` | Progress, running steps, estimated finish, blockers. |
-| `/mama ask [slug] <question>` | Ask about a goal's work ("why soft delete?", "how was X tested?"). |
-| `/mama test [slug] [what]` | A manual test guide for you, plus an automated re-check. |
-| `/mama fix [slug]` | Start a fix goal from what another goal found. |
-| `/mama change [slug] <what>` | Change the plan of a running or finished goal. |
-| `/mama pause` · `abort` · `list` · `resume <slug>` | Goal control. |
+| `/mama <what you want>` | start a piece of work |
+| `/mama quick <small task>` | do a small task with fewer questions |
+| `/mama status` | see progress and when it will finish |
+| `/mama ask <question>` | ask about the work ("why did you choose X?") |
+| `/mama test` | get steps to try it yourself, plus an automatic re-check |
+| `/mama fix` | fix what a test or review found |
+| `/mama change <what>` | change the plan |
+| `/mama pause` · `/mama resume` · `/mama list` | pause, continue, or see all work |
 
-## Where things live
+Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 
-- **The skill:** `SKILL.md` (the flow), `rules/` (read when the flow points to them), `scripts/` (state writers and checks), `hooks/`, `templates/`.
-- **Per repo:** goals live in `<repo>/.claude/mama/<slug>/`, as `overview.md`, `plan.md`, `log.md` and, after `/mama test`, `tests.md`. The store also holds `profile.md` (repo facts) and `lessons.md` (what past goals taught). mama adds `.claude/mama/` and `.claude/worktrees/` to `.git/info/exclude`, so none of it is committed.
-- **Per user:**
-  - `~/.claude/mama/patterns.md`: how you like to work. Plain language, and you can edit it.
-  - `~/.claude/mama/activity.log`: which session worked on which goal, used to measure spend.
+## Update or remove
 
-## Defaults you may want to change
+- **Update:** paste the same install line again.
+- **Remove** (your notes in each project are kept):
+  - macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash -s -- --uninstall`
+  - Windows: `$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex`
 
-- **Subagent model:** every subagent runs as `model: opus`, `effort: medium` (`rules/agents.md`).
-- **Agent limits:** at most 8 building agents (fewer if CPU or memory is short) and 8 read-only agents (`scripts/resources.py`).
-- **Budgets:** S ≤ 300k tokens, M ≤ 1M, L takes a number you set. The size references in `rules/planning.md` come from real runs on one monorepo; your numbers will differ and are learned in `lessons.md`.
+## If something goes wrong
 
-## Tests
+| You see | Do this |
+| --- | --- |
+| `/mama` isn't recognised | Restart Claude Code. Still missing? Paste the install line again. |
+| macOS: "Command Line Tools" window opened | Click Install, wait for it to finish, then paste the install line again. |
+| Windows: "not available — open a new PowerShell window" | Close PowerShell, open a new one, paste the install line again. |
+| Linux: asks for your password | It's installing git or Python for you; type your password. |
 
-```bash
-python3 tests/test_mama.py
-```
+---
 
-The tests run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows on every push.
+## Details
 
-## Contributing
+### What the installer does
 
-Issues and pull requests are welcome. Keep changes small, run `python3 tests/test_mama.py`, and add a test for any script or hook behaviour you change. The skill's text (`SKILL.md`, `rules/`) is read by the model on every run, so keep it short and current — say what to do, not its history.
+1. Installs anything missing:
+   - **git** and **Python 3.8+**: Homebrew or Apple's Command Line Tools on macOS, your package manager on Linux (apt, dnf, yum, pacman, zypper or apk), `winget` on Windows.
+   - **Windows only:** Git for Windows, which also gives Claude Code the Bash tool it needs there.
+2. Downloads mama to `~/.claude/skills/mama` (`%USERPROFILE%\.claude\skills\mama` on Windows). If something else is already there, it's moved aside, not deleted.
+3. Registers three Claude Code hooks in `~/.claude/settings.json`. It keeps your other settings and saves the old file as `settings.json.bak`. The hooks call Python by its full path, so they work in any shell.
+
+Prefer to do it by hand? Run `git clone https://github.com/ringku1/claude-mama.git ~/.claude/skills/mama`, then `python3 ~/.claude/skills/mama/install.py` (on Windows, `py` instead of `python3`).
+
+### How it works
+
+- **Research first.** Parallel read-only agents map the code the work touches, and every case it must handle, before asking anything.
+- **Questions once.** One batch, multiple choice, each with a recommended answer. It remembers your preferences (`~/.claude/mama/patterns.md`).
+- **A wide plan, run in parallel.** Steps own separate files, so many run at once. Time estimates come from the longest chain of dependent steps.
+- **Evidence, not claims.** A step is done when its check passes, and the work closes only when a final check passes.
+- **Measured cost.** It reads real token spend and stops to ask at 70% of the budget.
+- **Safe by default.**
+  - Each piece of work gets its own git branch and worktree.
+  - It stops at `git push` and opens a pull request only if you say so.
+  - It never touches your running servers or shared databases, and adds no AI credit lines to commits.
+
+### Where things live
+
+- **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
+- **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it), and `activity.log`, used to measure cost.
+- **The skill:** `SKILL.md` (the flow), `rules/`, `scripts/`, `hooks/`, `templates/`.
+
+### Settings you may want to change
+
+- **Subagent model:** `model: opus`, `effort: medium`, set in `rules/agents.md`.
+- **Agents at once:** up to 8 that build (fewer if CPU or memory is short) and 8 read-only, set in `scripts/resources.py`.
+- **Budgets:** S up to 300k tokens, M up to 1M, L a number you set. The references in `rules/planning.md` come from real runs on one project; yours are learned in `lessons.md`.
+
+### Not supported
+
+claude.ai chat and Claude Code on the web: mama needs your personal skills folder and its hooks, which those don't load.
+
+### Development
+
+Run the tests with `python3 tests/test_mama.py`. They run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows, and also tests the one-line installers there.
+
+Issues and pull requests are welcome. Keep changes small and add a test for any script or hook change. `SKILL.md` and `rules/` are read by the model on every run, so keep them short and current.
 
 ## License
 
