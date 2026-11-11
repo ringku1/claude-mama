@@ -8,6 +8,7 @@ Usage:
   plan-set.py <plan.md> --progress                                # only recompute
   plan-set.py <plan.md> S+ kind=build "title=…" deps=S2 "verify=…" est=15m   # add a step (next id)
   plan-set.py <plan.md> C+ "criterion=…" "proven by=S7"                       # add a criterion
+  plan-set.py <plan.md> P+ "text=student side: no design yet"                 # park an out-of-scope idea
 
 Row columns are matched by the table's header. Header fields are the `key: value`
 pairs in the lines above the first section. Prints what changed and the progress line.
@@ -153,6 +154,26 @@ def add_row(lines, section, prefix, updates):
     print("ADDED", lines[at])
 
 
+def park(lines, text):
+    """Append a bullet to ## Parked (dropping the template's placeholder bullet)."""
+    if not text.strip():
+        sys.exit("REFUSED: P+ needs text=…")
+    if not any(l.strip() == "## Parked" for l in lines):
+        lines += ["", "## Parked", ""]
+    start = next(i for i, l in enumerate(lines) if l.strip() == "## Parked")
+    end = lambda: next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    for i in range(end() - 1, start, -1):
+        if re.fullmatch(r"- <[^>]*>", lines[i].strip()):
+            del lines[i]
+    bullets = [i for i in range(start + 1, end()) if lines[i].startswith("- ")]
+    at = bullets[-1] + 1 if bullets else start + 1
+    if not bullets:
+        lines.insert(at, "")
+        at += 1
+    lines.insert(at, f"- {text.strip()}")
+    print("PARKED", lines[at])
+
+
 def header_value(lines, key):
     for l in lines:
         if l.startswith("## "):
@@ -239,9 +260,13 @@ def main():
         guard_header(path, lines, updates)
         set_header(lines, updates)
         milestone = any(k in updates and updates[k] != v for k, v in before.items())
+        if updates.get("status") == "done":
+            milestone = False  # close-check already required the final report; the Status line syncs to Done
     elif what in ("S+", "C+"):
         add_row(lines, "## Steps" if what == "S+" else "## Criteria", what[0], updates)
         milestone = header_value(lines, "status") != "planning"  # scope changed mid-run
+    elif what == "P+":
+        park(lines, updates.get("text", ""))
     elif what.startswith("C"):
         set_row(lines, "## Criteria", what, updates)
     elif what.startswith("S"):

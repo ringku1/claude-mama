@@ -346,7 +346,11 @@ class CloseCheck(Base):
     def test_ready_goal_passes_and_closes(self):
         g = self.ready_goal()
         self.assertIn("OK", self.run_s("close-check.py", g))
+        mark, old = os.path.join(g, ".milestone"), time.time() - 30
+        os.utime(mark, (old, old))
         self.run_s("plan-set.py", self.plan(g), "--header", "status=done")
+        self.assertIn("**Status:** Done · 1 of 1 parts done", self.read(os.path.join(g, "overview.md")))
+        self.assertAlmostEqual(os.path.getmtime(mark), old, delta=1)  # closing asks for no overview rewrite
 
     def test_missing_evidence_and_report(self):
         g = self.ready_goal()
@@ -491,6 +495,16 @@ class PlanAndOverview(Base):
         self.assertEqual(len(self.rows(p, "S")), 2)
         self.assertIn("progress: 0/2", self.read(p))
 
+    def test_park(self):
+        g = self.new_goal()
+        p = self.plan(g)
+        self.run_s("plan-set.py", p, "P+", "text=student side: no design yet")
+        self.run_s("plan-set.py", p, "P+", "text=categories")
+        parked = self.read(p).split("## Parked", 1)[1]
+        self.assertEqual(re.findall(r"^- .*$", parked, re.M), ["- student side: no design yet", "- categories"])
+        self.assertNotIn("<", parked)
+        self.assertIn("REFUSED", self.run_s("plan-set.py", p, "P+", "text= ", ok=False))
+
     def test_added_row_stamps_now_and_runs_guards(self):
         g = self.new_goal()
         self.fill_steps(g)
@@ -525,6 +539,11 @@ class PlanAndOverview(Base):
         self.assertGreater(os.path.getmtime(mark), old)
         self.run_s("plan-set.py", p, "--header", "status=waiting")
         self.assertIn("**Status:** Waiting for you · 1 of 1 parts done\n", self.read(ov))  # stale detail dropped
+
+        m = time.time() - 30
+        os.utime(mark, (m, m))
+        self.run_s("plan-set.py", p, "--header", "status=running")
+        self.assertGreater(os.path.getmtime(mark), m + 1)  # a status change is a milestone
 
     def test_hook_asks_for_overview_only_after_a_milestone(self):
         g = self.new_goal()

@@ -41,7 +41,7 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 ## Guards
 
-- **Scope**: anything outside the goal becomes a `parked` line, not work. Existing code that breaks a repo rule is out of scope too — new code follows the rules; old violations are parked unless the goal is about them.
+- **Scope**: anything outside the goal becomes a `parked` line (`plan-set.py <plan> P+ "text=…"`), not work. Existing code that breaks a repo rule is out of scope too — new code follows the rules; old violations are parked unless the goal is about them.
 - **Budget**: measured, not estimated — the Stop hook writes the real spend (main thread + this goal's subagents, from the transcripts) into the plan header at every turn end and blocks at 70%. Read it after every step and compare: at ~70% of the size's ceiling (S 210k, M 700k, L the number set at planning), stop dispatching, set status `waiting`, and ask: continue / cut scope / stop. On continue, raise the ceiling once with headroom — measured spend + the remaining steps' estimate + 30% — never in small steps that re-ask every turn (a merge-and-feature goal once asked 7 times). This check is not optional — it's the user's guard against runaway cost.
 - **Stop at done**: all criteria evidenced → deliver. No polish beyond the criteria.
 
