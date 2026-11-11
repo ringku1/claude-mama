@@ -79,3 +79,12 @@ def locked(f):
         finally:
             f.flush()
             fcntl.flock(f, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def plan_lock(plan_path):
+    """Serialise read-modify-write of a goal's plan.md (plan-set, the Stop hook's budget write):
+    hold this for the whole read → edit → write_atomic, never just the write."""
+    lock = os.path.join(os.path.dirname(os.path.abspath(plan_path)), ".plan.lock")
+    with open(lock, "a") as f, locked(f):
+        yield
