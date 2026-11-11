@@ -6,7 +6,8 @@ Usage: new-goal.py <store> <slug> <type> "<where it came from>" [--quick]
   --quick: mode quick, and a 3-line overview instead of the full one
 Creates <store>/<slug>/ (suffix -2, -3… if taken) with plan.md (header filled: slug, type,
 status planning, started now), overview.md (template) and log.md (empty, then E1 via log.py).
-Template comments are stripped. Prints the goal folder path.
+Template comments are stripped; the start is marked as the first milestone (.milestone, see
+overview.py). Prints the goal folder path.
 """
 import datetime, os, re, subprocess, sys
 

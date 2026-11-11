@@ -2,7 +2,7 @@
 name: mama
 description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with as many parallel agents as the work allows until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
-argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
+argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | fix [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
 
 # mama
@@ -30,7 +30,7 @@ Parse `$ARGUMENTS`:
 
 | Input                            | Do                                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), estimated finish (now + `left` from `scripts/estimate.py <plan.md>`, calibrated per `rules/planning.md`), blockers, next. Regenerate `overview.md`. |
+| `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), estimated finish (now + `left` from `scripts/estimate.py <plan.md>`, calibrated per `rules/planning.md`), blockers, next. Regenerate `overview.md` only if the goal is this session's — another session's goal stays read-only. |
 | `ask [<slug>] <question>`       | Answer a question about a goal's work, during or after it — see "Asking about the work". |
 | `test [<slug>] [<what>]`        | Help the user test what a goal built, and check it ourselves — see "Testing the work". |
 | `fix [<slug>] [<what>]`         | Fix what a goal found (a test run, review or research): a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files. |
@@ -49,11 +49,12 @@ Parse `$ARGUMENTS`:
 
 - `profile.md` — repo facts: commands, conventions, things never to do. Create on first use from the repo's rules; reuse after.
 - `lessons.md` — what past goals taught. Read during research if it exists; created at the first close. Append only.
-
-**User-level**, all repos: `~/.claude/mama/patterns.md` — how this user works (choices, corrections, preferences, estimate accuracy). Created from `templates/patterns.md` on first use. It's about the user, so it's written in plain language they can read and edit; their edits win.
 - `<slug>/overview.md` — **for the user.** Plain language, no IDs or jargon.
 - `<slug>/plan.md` — **for you.** Source of truth for criteria, steps, progress.
 - `<slug>/log.md` — **for you.** Append-only: questions, decisions, findings, changes, events.
+- `<slug>/tests.md` — what `/mama test` gave the user and what they reported (created on first use).
+
+**User-level**, all repos: `~/.claude/mama/patterns.md` — how this user works (choices, corrections, preferences, estimate accuracy). Created from `templates/patterns.md` on first use. It's about the user, so it's written in plain language they can read and edit; their edits win.
 
 Skill files (`templates/`, `rules/`, `scripts/`) live in `${CLAUDE_SKILL_DIR}`; read each only when the flow points to it. Slug: 2-5 kebab-case words from the goal.
 

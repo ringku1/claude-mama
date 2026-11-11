@@ -1,4 +1,4 @@
-<!-- plan.md — machine file, source of truth. Only the orchestrator writes it. Update step rows with scripts/plan-set.py; header lines with Edit. Unknown-yet values: —. Delete this comment. -->
+<!-- plan.md — machine file, source of truth. Only the orchestrator writes it, only with scripts/plan-set.py: rows (S3 / C1 / S+ / C+), header (--header), Parked (P+). Unknown-yet values: —. Delete this comment. -->
 
 goal: <slug> | type: <build|fix|research|mixed> | status: <planning|approved|running|waiting|paused|blocked|done|aborted> | mode: <checkpointed|autonomous|quick|—>
 progress: <done>/<live> (<pct>%) | blocked: <n> | budget: ~<spent>k / <S|M|L>
