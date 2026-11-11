@@ -4,7 +4,7 @@ Questions turn a vague goal into specific context. Every question must be one th
 
 ## Before asking
 
-- Research is done, every lens returned (SKILL.md → Research). Cite what you found: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
+- Research is done, every lens returned (`rules/research.md`). Cite what you found: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
 - If research found the thing **already exists**, lead with that: reuse, extend, or build anyway?
 - **Value filter**: if every option leads to the same work, drop the question; decide and log it (tag `inferred`).
 - **Patterns**: a learned line in `~/.claude/mama/patterns.md` that answers a question settles it — log it (tag `user`, "from patterns") and mention it in one line. Patterns only set the recommended option for the base branch; it is still always asked.
