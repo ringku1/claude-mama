@@ -21,7 +21,8 @@ def parse_ts(s):
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
 
 
-SLUG_RE = re.compile(r"\.claude/mama/([a-z0-9][a-z0-9-]*)/(?:plan|log|overview)\.md")
+# paths may use / or \ (Windows tools write C:\Users\…\.claude\mama\<slug>\plan.md)
+SLUG_RE = re.compile(r"\.claude[\\/]+mama[\\/]+([a-z0-9][a-z0-9-]*)[\\/]+(?:plan|log|overview)\.md")
 
 
 def messages(path):
@@ -104,12 +105,14 @@ def ceiling(size):
     return None
 
 
-GOAL_DIR = re.compile(r"\.claude/mama/([a-z0-9][a-z0-9-]*)(?![\w.-])")
+GOAL_DIR = re.compile(r"\.claude[\\/]+mama[\\/]+([a-z0-9][a-z0-9-]*)(?![\w.-])")
 # a shell command that changes files: the skill's writers, redirects, tee, in-place edits, python writes
 WRITE_HINT = re.compile(r"(?:log|plan-set|new-goal)\.py|(?<![\d&])>>?(?!&)\s*(?!/dev/null)[\w\"'$/]|\btee\b|sed -i|\.write\(")
 # working on the skill itself (cd into its folder) is not running a goal, even when it tests on one
-SKILL_DEV = re.compile(r"cd\s+\S*\.claude/skills/mama\b")
-NEW_GOAL = re.compile(r"new-goal\.py\S*\s+\S*(?:mama/?|\$\w+)\"?\s+([a-z0-9][a-z0-9-]*)")
+SKILL_DEV = re.compile(r"cd\s+\S*\.claude[\\/]+skills[\\/]+mama\b")
+# raw JSON lines escape \\ as \\\\, so the quick pre-check allows any run of separators
+ANY_GOAL = re.compile(r"\.claude[\\/]+mama[\\/]+")
+NEW_GOAL = re.compile(r"new-goal\.py\S*\s+\S*(?:mama[\\/]?|\$\w+)\"?\s+([a-z0-9][a-z0-9-]*)")
 
 
 def written_slugs(path_or_data):
@@ -124,7 +127,7 @@ def written_slugs(path_or_data):
             return []
     out = []
     for line in data.splitlines():
-        if '"tool_use"' not in line or ".claude/mama/" not in line and "new-goal" not in line:
+        if '"tool_use"' not in line or not ANY_GOAL.search(line) and "new-goal" not in line:
             continue
         try:
             r = json.loads(line)

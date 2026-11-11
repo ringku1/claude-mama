@@ -270,6 +270,11 @@ class WrittenSlugs(unittest.TestCase):
         self.assertEqual(self.slugs("Bash", {"command": f"cd ~/.claude/skills/mama && python3 scripts/plan-set.py {G}/plan.md S1 a=b"}), [])
         self.assertEqual(self.slugs("Bash", {"command": "cat /r/.claude/mama/profile.md > /tmp/x"}), [])
 
+    def test_windows_paths(self):
+        self.assertEqual(self.slugs("Write", {"file_path": "C:\\Users\\A B\\r\\.claude\\mama\\goal-w\\plan.md"}), ["goal-w"])
+        self.assertEqual(self.slugs("Bash", {"command": "python x\\log.py C:\\r\\.claude\\mama\\goal-x\\log.md E go"}), ["goal-x"])
+        self.assertEqual(self.slugs("Bash", {"command": "cat C:\\r\\.claude\\mama\\goal-z\\log.md"}), [])
+
     def test_file_tools(self):
         self.assertEqual(self.slugs("Write", {"file_path": "/r/.claude/mama/goal-b/overview.md"}), ["goal-b"])
         self.assertEqual(self.slugs("Write", {"file_path": "/r/.claude/mama/goal-b/tests.md"}), [])
