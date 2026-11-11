@@ -12,6 +12,7 @@ import datetime, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402
+import overview  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TPL = os.path.join(HERE, "..", "templates")
@@ -64,6 +65,7 @@ def main():
     raw = open(os.path.join(TPL, "overview.md"), encoding="utf-8").read()
     rules = re.search(r"<!--(.*?)-->", raw, re.S)
     ov = QUICK_OVERVIEW if quick else strip_comments(raw)
+    overview.milestone(goal)  # the start counts: the overview written next is fresh
     fileio.write_atomic(os.path.join(goal, "overview.md"), ov)
 
     open(os.path.join(goal, "log.md"), "w", encoding="utf-8").close()

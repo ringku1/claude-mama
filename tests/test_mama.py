@@ -477,6 +477,89 @@ class Upgrades(Base):
         self.assertIn("compactions 1", cc.stdout)
 
 
+class PlanAndOverview(Base):
+    def rows(self, p, prefix):
+        return [l for l in self.read(p).splitlines() if re.match(rf"\| {prefix}\d", l)]
+
+    def test_added_rows_fill_the_blank_template_row(self):
+        g = self.new_goal()
+        p = self.plan(g)
+        self.assertIn("ADDED | C1 | works |", self.run_s("plan-set.py", p, "C+", "criterion=works", "proven by=S1"))
+        self.assertIn("ADDED | S1 | build | a |", self.run_s("plan-set.py", p, "S+", "kind=build", "title=a", "verify=v", "est=10m"))
+        self.assertIn("ADDED | S2 |", self.run_s("plan-set.py", p, "S+", "title=b", "deps=S1", "verify=v"))
+        self.assertEqual(len(self.rows(p, "C")), 1)
+        self.assertEqual(len(self.rows(p, "S")), 2)
+        self.assertIn("progress: 0/2", self.read(p))
+
+    def test_added_row_stamps_now_and_runs_guards(self):
+        g = self.new_goal()
+        self.fill_steps(g)
+        p = self.plan(g)
+        out = self.run_s("plan-set.py", p, "S+", "title=t", "verify=v", "status=running", "deps=S1")
+        self.assertIn("WARNING: S2 started before its deps", out)
+        self.assertRegex(self.rows(p, "S")[1], r"\| running \| 0 \|  \| \d\d:\d\d \|")
+        self.run_s("plan-set.py", p, "S+", "title=t", "verify=v", "start=now")
+        self.assertNotIn("now", self.rows(p, "S")[2])
+        self.assertIn("REFUSED", self.run_s("plan-set.py", p, "S+", "title=t", "verify=v", "start=10:00", "end=09:00", ok=False))
+
+    def test_status_line_synced_milestones_marked(self):
+        g = self.new_goal()
+        self.fill_steps(g)
+        p, ov, mark = self.plan(g), os.path.join(g, "overview.md"), os.path.join(g, ".milestone")
+        self.assertTrue(os.path.exists(mark))
+        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous")
+        self.assertIn("**Status:** Working · 0 of 1 parts done\n", self.read(ov))
+
+        s = self.read(ov).replace("0 of 1 parts done", "0 of 1 parts done · building the thing")
+        open(ov, "w").write(s)
+        old = time.time() - 60
+        os.utime(ov, (old, old))
+        os.utime(mark, (old - 60, old - 60))
+        self.run_s("plan-set.py", p, "S1", "status=running")  # not a milestone
+        self.run_s("plan-set.py", p, "S1", "notes=x")
+        self.assertIn("· building the thing", self.read(ov))
+        self.assertAlmostEqual(os.path.getmtime(ov), old, delta=1)  # synced, prose still counts as old
+        self.assertLess(os.path.getmtime(mark), old)
+
+        self.run_s("plan-set.py", p, "S1", "status=done")  # a milestone
+        self.assertGreater(os.path.getmtime(mark), old)
+        self.run_s("plan-set.py", p, "--header", "status=waiting")
+        self.assertIn("**Status:** Waiting for you · 1 of 1 parts done\n", self.read(ov))  # stale detail dropped
+
+    def test_hook_asks_for_overview_only_after_a_milestone(self):
+        g = self.new_goal()
+        self.fill_steps(g)
+        p, ov, mark = self.plan(g), os.path.join(g, "overview.md"), os.path.join(g, ".milestone")
+        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        old = time.time() - 60
+        os.utime(mark, (old - 60, old - 60))
+        os.utime(ov, (old, old))
+        self.run_s("plan-set.py", p, "S1", "status=running")
+        hook = Hook.hook.__get__(self)
+        self.assertEqual(hook("stop"), "")
+        self.run_s("plan-set.py", p, "S1", "status=blocked")
+        self.assertIn("regenerate overview.md", json.loads(hook("stop"))["reason"])
+
+    def test_critical_path_not_sum(self):
+        sys.path.insert(0, S)
+        import estimate
+        steps = [("S1", "—", "10m", "done"), ("S2", "S1", "20m", "todo"), ("S3", "—", "30m", "todo"),
+                 ("S4", "S2,S3", "5m", "todo"), ("S5", "S1-S4", "1h", "obsolete"), ("S6", "S7", "5m", "todo"),
+                 ("S7", "S6", "5m", "todo")]
+        self.assertEqual(estimate.critical_path(steps), 35)  # max(10+20, 30) + 5; S6<->S7 cycle cut
+        self.assertEqual(estimate.total(steps), 75)
+        self.assertEqual(estimate.critical_path(steps, left=True), 35)
+        self.assertEqual(estimate.minutes("1h 20m"), 80)
+        g = self.new_goal()
+        self.fill_steps(g)
+        out = self.run_s("plan-set.py", self.plan(g), "S+", "title=t", "verify=v", "est=20m")
+        self.assertIn("estimate: critical path 20m (sum 30m)", out)
+        cc = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True,
+                            text=True, env=self.env())
+        self.assertIn("time est 20m critical path (sum 30m)", cc.stdout)
+
+
 if __name__ == "__main__":
     import warnings
     warnings.simplefilter("ignore", ResourceWarning)

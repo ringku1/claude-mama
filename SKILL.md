@@ -1,6 +1,6 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with parallel agents until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
 argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
@@ -29,9 +29,10 @@ Parse `$ARGUMENTS`:
 
 | Input                            | Do                                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), blockers, next. Regenerate `overview.md`. |
+| `status` (or "status?" mid-run)  | In a new session, read state first (Re-entry, read-only). Print: goal status (if `waiting`: what the user should look at), progress line, running steps (step, started HH:MM, ETA = start + est), estimated finish (now + the `left` critical path plan-set prints, calibrated per `rules/planning.md`), blockers, next. Regenerate `overview.md`. |
 | `ask [<slug>] <question>`       | Answer a question about a goal's work, during or after it — see "Asking about the work". |
 | `test [<slug>] [<what>]`        | Help the user test what a goal built, and check it ourselves — see "Testing the work". |
+| `fix [<slug>] [<what>]`         | Fix what a goal found (a test run, review or research): a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify each finding against the code, then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files. |
 | `change [<slug>] <what>` (or "change the plan: …" mid-run) | Modify the plan of an existing goal — add, alter or drop scope, tests or deliverables. Read `rules/changes.md` → "Running a change" and follow it. No slug: this session's goal; none, or several open → list them and ask. |
 | "go" / "continue" at a checkpoint | Set goal status `running`, log `E resume`, continue the loop.                                                       |
 | `pause`                          | Record state, set status `paused`, stop.                                                                              |
@@ -90,7 +91,7 @@ Read `rules/questions.md`, then ask: one batch, specific, multiple choice with a
 
 ### 4. Plan
 
-Read `rules/planning.md`. Fill `plan.md`, validate, show one compact table (step · kind · depends on · verify) with the criteria, then ask approval with AskUserQuestion: approve · checkpointed (recommended) / approve · autonomous / change something. Never leave mode unanswered. Then set up the branch and worktree if the goal touches git (`rules/delivery.md`).
+Read `rules/planning.md`. Fill `plan.md` with `plan-set.py` (`S+` / `C+` fill the template's blank first rows, then add more; `--header` for the rest), validate, show one compact table (step · kind · depends on · verify) with the criteria, then ask approval with AskUserQuestion: approve · checkpointed (recommended) / approve · autonomous / change something. Never leave mode unanswered. Then set up the branch and worktree if the goal touches git (`rules/delivery.md`).
 
 ### 5. Loop
 
@@ -143,11 +144,12 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 - Every write through `log.py` / `plan-set.py` / `new-goal.py` records which session worked on which goal (`~/.claude/mama/activity.log`, from `CLAUDE_CODE_SESSION_ID`). That record — not guessing — tells the hooks which goal is this session's and tells `spend.py` whose tokens count. Writing goal files any other way leaves the goal unowned and unmeasured.
 - Waiting for the user is measured, so estimates calibrate on active time: `plan-set --header status=waiting` logs `E waiting` and the switch back logs `E resume` on their own; questions are `Q` lines and their answers `D … tag: user`.
 - The close check also refuses commits with attribution lines or loop internals (mama, plan.md, step IDs), and the overview is checked (close and every turn) for internal IDs, file:line refs and length over one screen.
-- The Stop hook measures the goal's real token spend into the plan header at every turn end (`scripts/spend.py`), and blocks once, listing every problem, when your goal: is `running` at ≥70% of its budget; says `running` without a final `E wait` line; has `plan.md` newer than `overview.md`; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
+- The Stop hook measures the goal's real token spend into the plan header at every turn end (`scripts/spend.py`), and blocks once, listing every problem, when your goal: is `running` at ≥70% of its budget; says `running` without a final `E wait` line; reached a milestone (step done or blocked, status, PR or scope changed) after `overview.md` was last written; has a user decision with no learning after it; or says `done` while the close check fails. Fix what it lists, don't argue with it.
 
 ## Writing state
 
 - Status must be honest whenever you end your turn: waiting for the user → `waiting`; stopped by request → `paused`; stuck → `blocked`. Waiting on your own background work (an agent, the gate) → status stays `running` and the last log line is `E wait <what>` (via `log.py`); its notification wakes you. A Stop hook reminds you once if you end a turn while the goal says `running` without that `wait` line.
 - Record an outcome only after checking the command's exit status — never chain a state write after a command with `;` (a failed push must not be logged as pushed).
 - After every step result, decision, change or commit: update `plan.md` with `python3 ${CLAUDE_SKILL_DIR}/scripts/plan-set.py <plan.md> <S3 | C1 | --header> key=value ...` (it also recomputes progress; `start=now` / `end=now` stamp the real time — never type times), and append to `log.md` with `scripts/log.py`. Unknown values are written `—`. A step with several commits lists all hashes in notes.
-- Regenerate `overview.md` when the plan is shown, after approval, at each checkpoint, on status, on any change, and at close — from plan and log, as if writing it fresh. It is the user's only window: short, plain, current.
+- Change `plan.md` and `log.md` only through `plan-set.py` and `log.py` — never python, sed or Edit on them: those skip the guards, the safe write and the session record.
+- `plan-set.py` keeps the overview's **Status:** line in step with the plan (`<Word> · n of m parts done[ · your detail]`). Regenerate the rest of `overview.md` when the plan is shown, after approval, at each checkpoint, on status, on any change, and at close — from plan and log, as if writing it fresh. It is the user's only window: short, plain, current.

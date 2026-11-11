@@ -20,6 +20,12 @@ Guards (they enforce the skill's rules, so state can't drift):
 - added rows get the next free id; a step needs title + verify, deps must exist; rows are never
   deleted (set status=obsolete with a reason in notes)
 - first switch to running with a linked Trello card and no `trello` log line prints a REMINDER
+- `now` stamps the real HH:MM in any row, added ones too; S+/C+ fill the template's blank row first
+
+After every write it syncs overview.md's **Status:** line (scripts/overview.py) and, on a
+milestone (step done/blocked/dropped, goal status or PR changed, scope added mid-run), marks
+it so the Stop hook asks for the overview's prose to be refreshed. Prints the estimate
+(critical path, sum, time left) after step changes.
 """
 import datetime
 import os
@@ -30,6 +36,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
 import fileio  # noqa: E402
+import overview  # noqa: E402
+from estimate import expand, summary  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
@@ -68,19 +76,15 @@ def table(lines, section):
     return cells(lines[header_i]), rows
 
 
-def set_row(lines, section, row_id, updates):
-    header, rows = table(lines, section)
-    target = next((r for r in rows if cells(lines[r])[0] == row_id), None)
-    if target is None:
-        sys.exit(f"{row_id} not found in {section}")
-    vals = cells(lines[target]) + [""] * len(header)
-    vals = vals[: len(header)]
+def apply_updates(lines, rows, header, vals, row_id, updates):
+    """Write updates into a row's values with the guards — the same for set and added rows."""
+    col = {h: i for i, h in enumerate(header)}
     for k, v in updates.items():
-        if k not in header:
+        if k not in col:
             sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
-        vals[header.index(k)] = NOW() if v == "now" else v
-    if "status" in header and "status" in updates:
-        st, col = updates["status"], {h: i for i, h in enumerate(header)}
+        vals[col[k]] = NOW() if v == "now" else v
+    st = updates.get("status")
+    if st and "status" in col:
         if st in ("running", "testing", "fixing") and "start" in col and not vals[col["start"]]:
             vals[col["start"]] = NOW()
         if st in ("done", "obsolete") and "end" in col and not vals[col["end"]]:
@@ -90,52 +94,63 @@ def set_row(lines, section, row_id, updates):
             open_deps = [d for d in expand(vals[col["deps"]]) if d not in done]
             if open_deps:
                 print(f"WARNING: {row_id} started before its deps are done: {', '.join(open_deps)}")
-    if "start" in header and "end" in header:
-        a, b = vals[header.index("start")], vals[header.index("end")]
+    if "start" in col and "end" in col:
+        a, b = vals[col["start"]], vals[col["end"]]
         if re.fullmatch(r"\d\d:\d\d", a or "") and re.fullmatch(r"\d\d:\d\d", b or "") and b < a \
                 and not (a > "20:00" and b < "04:00"):
             sys.exit(f"REFUSED: {row_id} end {b} is before start {a}")
+
+
+MILESTONE_STEP = {"done", "blocked", "obsolete", "parked"}
+
+
+def set_row(lines, section, row_id, updates):
+    """Returns True when the change is a milestone (a step finished, blocked or dropped)."""
+    header, rows = table(lines, section)
+    target = next((r for r in rows if cells(lines[r])[0] == row_id), None)
+    if target is None:
+        sys.exit(f"{row_id} not found in {section}")
+    vals = (cells(lines[target]) + [""] * len(header))[: len(header)]
+    before = vals[header.index("status")] if "status" in header else ""
+    apply_updates(lines, rows, header, vals, row_id, updates)
     lines[target] = render(vals)
     print(lines[target])
+    return "status" in header and updates.get("status") in MILESTONE_STEP and before != updates["status"]
 
 
 def add_row(lines, section, prefix, updates):
+    """Add a row with the next free id — or fill the template's empty row (the blank S1/C1 a
+    new plan starts with) in place, so no placeholder is left behind."""
     header, rows = table(lines, section)
-    nums = [int(m.group(1)) for r in rows if (m := re.match(rf"{prefix}(\d+)", cells(lines[r])[0]))]
-    row_id = f"{prefix}{max(nums, default=0) + 1}"
+    need = ("title", "verify") if prefix == "S" else ("criterion", "proven by")
+    key = need[0]
+    blank = next((r for r in rows if key in header and not cells(lines[r])[header.index(key)]), None)
+    if blank is not None:
+        row_id = cells(lines[blank])[0]
+    else:
+        nums = [int(m.group(1)) for r in rows if (m := re.match(rf"{prefix}(\d+)", cells(lines[r])[0]))]
+        row_id = f"{prefix}{max(nums, default=0) + 1}"
     vals = [""] * len(header)
     vals[0] = row_id
-    defaults = {"status": "todo", "att": "0", "deps": "—", "evidence": "—"}
-    for k, v in {**defaults, **updates}.items():
-        if k not in header:
-            if k in defaults:
-                continue
-            sys.exit(f"unknown column {k!r}; columns: {', '.join(header)}")
-        vals[header.index(k)] = v
-    need = ("title", "verify") if prefix == "S" else ("criterion", "proven by")
+    for k, v in {"status": "todo", "att": "0", "deps": "—", "evidence": "—"}.items():
+        if k in header:
+            vals[header.index(k)] = v
+    apply_updates(lines, rows, header, vals, row_id, updates)
     miss = [k for k in need if k in header and not vals[header.index(k)]]
     if miss:
         sys.exit(f"REFUSED: a new {prefix} row needs {', '.join(miss)}")
     if prefix == "S":
-        ids = {cells(lines[r])[0] for r in rows}
+        ids = {cells(lines[r])[0] for r in rows if r != blank}
         bad = [d for d in expand(vals[header.index("deps")]) if d not in ids]
         if bad:
             sys.exit(f"REFUSED: unknown deps {', '.join(bad)}")
-    at = rows[-1] + 1 if rows else next(i for i in range(len(lines)) if lines[i].lstrip().startswith("|---") or lines[i].lstrip().startswith("| ---")) + 1
-    lines.insert(at, render(vals))
+    if blank is not None:
+        at = blank
+        lines[at] = render(vals)
+    else:
+        at = rows[-1] + 1 if rows else next(i for i in range(len(lines)) if lines[i].lstrip().startswith("|---") or lines[i].lstrip().startswith("| ---")) + 1
+        lines.insert(at, render(vals))
     print("ADDED", lines[at])
-
-
-def expand(deps):
-    """'S1-S4, S6a' -> ['S1','S2','S3','S4','S6a']"""
-    out = []
-    for part in re.split(r"[,\s]+", deps):
-        m = re.fullmatch(r"S(\d+)-S?(\d+)", part)
-        if m:
-            out += [f"S{n}" for n in range(int(m.group(1)), int(m.group(2)) + 1)]
-        elif re.fullmatch(r"S\d+\w*", part):
-            out.append(part)
-    return out
 
 
 def header_value(lines, key):
@@ -217,20 +232,31 @@ def main():
     path, what = sys.argv[1], sys.argv[2]
     lines = open(path, encoding="utf-8").read().split("\n")
     updates = parse_updates(sys.argv[3:])
+    goal = os.path.dirname(os.path.abspath(path))
+    milestone = False  # something the user would see changed: the overview's prose is due
     if what == "--header":
+        before = {k: header_value(lines, k) for k in ("status", "pr")}
         guard_header(path, lines, updates)
         set_header(lines, updates)
+        milestone = any(k in updates and updates[k] != v for k, v in before.items())
     elif what in ("S+", "C+"):
         add_row(lines, "## Steps" if what == "S+" else "## Criteria", what[0], updates)
+        milestone = header_value(lines, "status") != "planning"  # scope changed mid-run
     elif what.startswith("C"):
         set_row(lines, "## Criteria", what, updates)
     elif what.startswith("S"):
-        set_row(lines, "## Steps", what, updates)
+        milestone = set_row(lines, "## Steps", what, updates)
     elif what != "--progress":
         sys.exit(f"unknown target {what!r}")
     progress(lines)
     fileio.write_atomic(path, "\n".join(lines))
-    activity.record(os.path.dirname(os.path.abspath(path)))
+    activity.record(goal)
+    if milestone:
+        overview.milestone(goal)
+    overview.sync(goal)
+    est = summary("\n".join(lines))
+    if est and what != "--header":
+        print(est)
 
 
 if __name__ == "__main__":

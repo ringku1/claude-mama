@@ -189,13 +189,16 @@ def main():
         a, b = (datetime.datetime.strptime(t, "%H:%M") for t in (times[0], times[-1]))
         total = int((b - a).total_seconds() // 60) % (24 * 60)
         mins = f"{total}m (active {total - waiting_minutes(log)}m)"
-    est = sum(int(m) for s in live for m in re.findall(r"(\d+)m", s[si["est"]]))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import estimate
+    rows = [(s[0], s[si["deps"]], s[si["est"]], s[si["status"]]) for s in live]
+    est, est_sum = estimate.critical_path(rows), estimate.total(rows)
     att = sum(int(s[si["att"]] or 0) for s in live if s[si["att"]].isdigit())
     budget = head.get("budget", "?")
     size = budget.split("/")[-1].strip() if "/" in budget else "?"
     spent = f"{round(measured / 1000)}k" if measured else (budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?")
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
-            f"time est {est}m (sum of steps) / actual {mins} | tokens est {size} / ~{spent} | "
+            f"time est {est}m critical path (sum {est_sum}m) / actual {mins} | tokens est {size} / ~{spent} | "
             f"questions {len(re.findall(r'^Q', log, re.M))} (changed plan: ?) | fix rounds {att} | "
             f"checker findings ? | compactions {len(re.findall(r'^E\d+ \S+ compaction', log, re.M))} | "
             f"wrong assumptions ? | reversed decisions {len(re.findall(r'supersedes', log))}")
@@ -203,7 +206,7 @@ def main():
     for m in missing:
         print("MISSING:", m)
     print("METRICS:", line)
-    print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m / {size}, actual {mins} / {spent} measured"')
+    print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m critical path / {size}, actual {mins} / {spent} measured"')
     print("OK — ready to close" if not missing else f"NOT READY — {len(missing)} missing")
     sys.exit(1 if missing else 0)
 

@@ -4,6 +4,7 @@ overview.md — the ONLY file the user reads. Rules:
 - Current state only: written fresh each time, no "was / replaces / updated" history notes.
 - Short: aim to fit on one screen; detail belongs in plan.md / log.md.
 - Drop sections that are empty (except Goal, Done means, Timeline, Where we are).
+- The **Status:** line is kept by plan-set.py (`<Word> · n of m parts done`, plus an optional ` · detail`); keep its shape.
 - Delete this comment block in the real file.
 -->
 

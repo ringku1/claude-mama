@@ -7,7 +7,7 @@ so a broken hook can't disrupt a session.
 - precompact:   logs `E compaction` in this session's goal and tells the summary to keep it (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
 - stop:         blocks the stop once (with every problem listed) if this session's goal:
-                is `running` without a final `wait` log line; has plan.md newer than overview.md;
+                is `running` without a final `wait` log line; reached a milestone after overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line);
                 or says `done` while close-check.py fails.
 """
@@ -129,9 +129,15 @@ def unlearned(plan):
 
 
 def overview_stale(plan):
-    ov = os.path.join(os.path.dirname(plan), "overview.md")
+    """The overview's prose is older than the last milestone plan-set marked (step done/blocked,
+    status or PR changed, scope added). Its Status line is synced on every write, so ordinary
+    plan writes don't count. Goals from before milestones: plan.md newer than overview.md."""
+    goal = os.path.dirname(plan)
+    ov = os.path.join(goal, "overview.md")
     try:
-        return os.path.getmtime(plan) > os.path.getmtime(ov) + 2
+        mark = os.path.join(goal, ".milestone")
+        ref = os.path.getmtime(mark) if os.path.exists(mark) else os.path.getmtime(plan)
+        return ref > os.path.getmtime(ov) + 2
     except OSError:
         return False
 
@@ -208,7 +214,8 @@ def main():
                 f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
                 "status (waiting / paused / blocked) — or, to wait on your own background work, log `E wait <what>` last.")
         if stale:
-            problems.append("plan.md changed after overview.md — regenerate overview.md (the user's only window).")
+            problems.append("A milestone (a step finished or blocked, the status, PR or scope changed) since overview.md "
+                            "was written — regenerate overview.md (the user's only window); its Status line is synced for you.")
         elif g["status"] in OPEN:
             try:
                 ov = open(os.path.join(os.path.dirname(g["plan"]), "overview.md"), encoding="utf-8").read()
