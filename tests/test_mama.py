@@ -61,8 +61,9 @@ class Base(unittest.TestCase):
         return open(path, encoding="utf-8").read()
 
     def fill_steps(self, goal):
-        """Replace the template step/criterion rows with real ones."""
+        """Replace the template step/criterion rows with real ones (research already logged)."""
         p = self.plan(goal)
+        self.run_s("log.py", os.path.join(goal, "log.md"), "E", "research: 2 findings, 1 cases, 0 open")
         s = self.read(p)
         s = re.sub(r"^\| C1 .*$", "| C1  | it works | S1 | — |", s, flags=re.M)
         s = re.sub(r"^\| S1 .*$", "| S1  | build | thing | — | a.go | go test | todo | 0 | 10m |  |  |  |", s, flags=re.M)
@@ -504,6 +505,19 @@ class PlanAndOverview(Base):
         self.assertEqual(re.findall(r"^- .*$", parked, re.M), ["- student side: no design yet", "- categories"])
         self.assertNotIn("<", parked)
         self.assertIn("REFUSED", self.run_s("plan-set.py", p, "P+", "text= ", ok=False))
+
+    def test_approval_needs_research(self):
+        g = self.new_goal()
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", p, "--header", "status=waiting")
+        out = self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", ok=False)
+        self.assertIn("no research recorded", out)
+        self.run_s("log.py", log, "E", "research none: one-line config change")
+        self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous")
+        q = self.new_goal("tiny")  # quick goals skip research
+        self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
 
     def test_added_row_stamps_now_and_runs_guards(self):
         g = self.new_goal()

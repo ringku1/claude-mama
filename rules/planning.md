@@ -23,6 +23,7 @@ Write criteria before steps. Each must be checkable by a command, a test, or a c
 
 Check, fix, then present:
 - [ ] Every done criterion maps to ≥1 step
+- [ ] Every `case:` from research is covered — by a criterion or a step's verify, a logged decision, or a parked line
 - [ ] No dependency cycles; no ownership overlap between parallel steps
 - [ ] Every step has a verify that actually exercises its criterion
 - [ ] Steps are right-sized; skeleton first; critical path early

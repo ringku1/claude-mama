@@ -84,11 +84,11 @@ The user may run several goals in parallel sessions. Each goal is isolated:
 
 ### 2. Research
 
-Read-only. Read `rules/agents.md` before spawning any agent. Fan out: one read-only agent per independent question or area, all at once, while you read the repo rules and the store's files yourself. Answer: **does this already exist** (a feature, helper, doc that does it — then the goal may shrink or change), how the repo solves similar things (precedent), which rules apply, what's risky. Read `~/.claude/mama/patterns.md` (learned lines only), `lessons.md`, and create or read `profile.md`. Record findings as `F` lines in `log.md` (tag what you read yourself as verified); the plan reuses them. Plan a research step only for what is still open after this phase — never re-prove a finding.
+Read-only. Read `rules/research.md` and follow it: parallel lens agents map every branch of the work and every case before any question. Log `E research: <n> findings, <m> cases, <k> open` (or `E research none: <why>` for a goal that needs none) — plan approval is refused without it.
 
 ### 3. Questions
 
-Read `rules/questions.md`, then ask: one batch, specific, multiple choice with a recommended option.
+Read `rules/questions.md`, then ask: one batch, specific, multiple choice with a recommended option — covering every open case from research.
 
 ### 4. Plan
 

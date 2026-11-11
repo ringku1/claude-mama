@@ -16,7 +16,8 @@ pairs in the lines above the first section. Prints what changed and the progress
 Guards (they enforce the skill's rules, so state can't drift):
 - a step set to running/testing/fixing gets start=now if empty; done/obsolete gets end=now if empty
 - a step set to running whose deps aren't done prints a WARNING
-- header status approved/running needs mode checkpointed|autonomous|quick (ask the user)
+- header status approved/running needs mode checkpointed|autonomous|quick (ask the user); the first
+  approval of a full goal also needs an `E research` log line (rules/research.md)
 - header status done runs close-check.py and is refused until it prints OK
 - added rows get the next free id; a step needs title + verify, deps must exist; rows are never
   deleted (set status=obsolete with a reason in notes)
@@ -205,6 +206,12 @@ def guard_header(path, lines, updates):
             sys.exit("REFUSED: goal can't close yet.\n" + r.stdout)
     prev = header_value(lines, "status")
     logp = os.path.join(os.path.dirname(os.path.abspath(path)), "log.md")
+    log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""
+    first_go = st in ("approved", "running") and prev in ("planning", "waiting") \
+        and not re.search(r"^E\d+ \S+ resume", log, re.M)
+    if first_go and mode != "quick" and not re.search(r"^E\d+ \S+ research", log, re.M):
+        sys.exit("REFUSED: no research recorded. Run the research lenses (rules/research.md), then log "
+                 "`E research: <n> findings, <m> cases, <k> open` — or `E research none: <why>` if this goal needs none.")
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
         subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)

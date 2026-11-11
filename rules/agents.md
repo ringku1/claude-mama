@@ -43,6 +43,8 @@ Rules: no commits (orchestrator commits); no tracking-file edits; quiet commands
 Return ≤10 lines: done? · files changed · verify result (pass/fail + key line) · issues/decisions you had to make.
 ```
 
+Research-lens brief: `rules/research.md`.
+
 Test-agent brief: same frame, but "Check, don't fix: run <verify>, read the diff for <files>, judge whether the test really exercises <criterion>. Return pass/fail + evidence."
 
 Never pass the conversation, the whole plan or the log. Agents never write `plan.md`, `log.md` or `overview.md` — you record what they report.

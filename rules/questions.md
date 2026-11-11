@@ -4,18 +4,19 @@ Questions turn a vague goal into specific context. Every question must be one th
 
 ## Before asking
 
-- Research is done. Cite what you found: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
+- Research is done, every lens returned (SKILL.md → Research). Cite what you found: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
 - If research found the thing **already exists**, lead with that: reuse, extend, or build anyway?
 - **Value filter**: if every option leads to the same work, drop the question; decide and log it (tag `inferred`).
 - **Patterns**: a learned line in `~/.claude/mama/patterns.md` that answers a question settles it — log it (tag `user`, "from patterns") and mention it in one line. Patterns only set the recommended option for the base branch; it is still always asked.
 - **Overrides teach**: when the user picks something other than your recommendation, update `patterns.md` right away.
+- **Cover the case map**: walk every `case:` line. A case the code, precedent, the input or patterns settles → decide, log it (`inferred`), and list the product-facing ones in the overview's Key decisions. A case left open whose answer changes the work → a question. Several small open cases in one area → one question with the recommended handling for all of them.
 - **Pre-mortem**: imagine the goal failed. The likely reasons are your most valuable questions.
 
 ## Categories (skip what doesn't apply)
 
 1. Goal type, if ambiguous (build / fix / research / mixed)
 2. Scope & non-goals
-3. Behaviour & edge cases
+3. Behaviour & edge cases (the open cases from research)
 4. Data / API shape
 5. UI / design reference
 6. Testing — which tests, what counts as proof
