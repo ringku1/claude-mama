@@ -17,8 +17,14 @@ import shutil
 import subprocess
 import sys
 
+for _stream in (sys.stdout, sys.stderr):  # print "—" safely on a cp1252 Windows console
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 HERE = os.path.dirname(os.path.realpath(__file__))
-CLAUDE = os.path.join(os.path.expanduser("~"), ".claude")
+CLAUDE = os.path.normpath(os.path.join(os.path.expanduser("~"), ".claude"))  # one separator style (mklink reads "/x" as a switch)
 DEST = os.path.join(CLAUDE, "skills", "mama")
 SETTINGS = os.path.join(CLAUDE, "settings.json")
 EVENTS = {"PreCompact": ("precompact", None), "SessionStart": ("sessionstart", "compact"), "Stop": ("stop", None)}
