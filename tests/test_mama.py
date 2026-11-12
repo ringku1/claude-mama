@@ -501,7 +501,8 @@ class PlanAndOverview(Base):
         self.assertAlmostEqual(os.path.getmtime(ov), old, delta=1)  # synced, prose still counts as old
         self.assertLess(os.path.getmtime(mark), old)
 
-        self.run_s("plan-set.py", p, "S1", "status=done")  # a milestone
+        self.run_s("plan-set.py", p, "S1", "notes=x ★")
+        self.run_s("plan-set.py", p, "S1", "status=done")  # a ★ step done: a milestone
         self.assertGreater(os.path.getmtime(mark), old)
         self.run_s("plan-set.py", p, "--header", "status=waiting")
         self.assertIn("**Status:** Waiting for you · 1 of 1 parts done\n", self.read(ov))  # stale detail dropped

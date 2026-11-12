@@ -103,7 +103,7 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 - **Questions once.** One batch, multiple choice, each with a recommended answer. It remembers your preferences (`~/.claude/mama/patterns.md`).
 - **A wide plan, run in parallel.** Steps own separate files, so many run at once. Time estimates come from the longest chain of dependent steps.
 - **Evidence, not claims.** A step is done when its check passes, and the work closes only when a final check passes.
-- **Measured cost.** It reads real token spend and stops to ask at 70% of the budget.
+- **Measured cost and time.** It reads real token spend. At 70% of the budget it asks you, or, when running on its own, raises the budget up to 2× for work you already approved and tells you. Time estimates are scaled by how long your past goals really took.
 - **Safe by default.**
   - Each piece of work gets its own git branch and worktree.
   - It stops at `git push` and opens a pull request only if you say so.
@@ -112,7 +112,7 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 ### Where things live
 
 - **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
-- **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it), and `activity.log`, which records which session wrote to which piece of work. It decides which work the hooks treat as a session's own, and cost counts the sessions recorded there (plus a transcript scan only for work started before `activity.log` existed).
+- **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it; the version before mama's last change is kept as `patterns.md.bak`), and `activity.log`, which records which session wrote to which piece of work. It decides which work the hooks treat as a session's own, and cost counts the sessions recorded there (plus a transcript scan only for work started before `activity.log` existed).
 - **The skill:** `SKILL.md` (the flow), `rules/`, `scripts/`, `hooks/`, `templates/`.
 
 ### Settings you may want to change

@@ -127,5 +127,45 @@ class Lock(PlanBase):
         self.assertTrue(self.row().endswith("| x |"))
 
 
+class Lean(PlanBase):
+    def test_plain_step_done_is_no_milestone_starred_is(self):
+        mark = os.path.join(self.g, ".milestone")
+        self.ps("S+", "title=b", "verify=v", "notes=end to end ★")
+        old = time.time() - 60
+        os.utime(mark, (old, old))
+        self.ps("S1", "status=done")
+        self.assertAlmostEqual(os.path.getmtime(mark), old, delta=1)
+        self.ps("S2", "status=done")
+        self.assertGreater(os.path.getmtime(mark), old + 30)
+
+    def test_fixing_counts_a_fix_round(self):
+        self.ps("S1", "status=running")
+        self.ps("S1", "status=fixing")
+        self.ps("S1", "notes=still fixing")
+        self.ps("S1", "status=running")
+        self.ps("S1", "status=fixing")
+        row = next(l for l in self.read(self.p).splitlines() if l.startswith("| S1"))
+        self.assertRegex(row, r"\| fixing \| 2 \|")
+
+    def test_estimate_scaled_by_past_goals(self):
+        sys.path.insert(0, S)
+        import estimate
+        self.ps("S1", "est=100m")
+        self.assertIn("no past goals to calibrate yet", self.ps("S1", "notes=n"))
+        with open(os.path.join(self.store, "lessons.md"), "w", encoding="utf-8") as f:
+            f.write("- d a fix | time est 100m critical path (sum 150m) / actual 71m (active 50m) | x\n"
+                    "- d b fix | time est 109m (sum of steps) / actual 29m | x\n"  # a sum, not a critical path: skipped
+                    "- d c fix | time est 40m critical path (sum 40m) / actual 20m (active 20m) | x\n")
+        pat = os.path.join(self.home, ".claude", "mama", "patterns.md")
+        with open(pat, "w", encoding="utf-8") as f:
+            f.write("## Goals and estimates\n\n- x (mixed, 12 steps): est 200m critical path / L 3M, actual 50m (active 40m) / 1900k\n"
+                    "- a fix (fix, 2 steps): est 100m critical path / M, actual 71m (active 50m) / 9k\n")  # same as lessons: once
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"HOME": self.home, "USERPROFILE": self.home}):
+            self.assertEqual(estimate.history(self.p), [(100, 50), (40, 20), (200, 40)])
+            self.assertEqual(estimate.ratio(self.p), (0.5, 3))
+        self.assertIn("likely ~50m, ~50m left (past goals took ×0.50 of the critical path, last 3)", self.ps("S1", "notes=m"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,9 +29,10 @@ Guards (they enforce the skill's rules, so state can't drift):
 - the whole read → edit → write holds fileio.plan_lock (the Stop hook writes the budget under it too)
 
 After every write it syncs overview.md's **Status:** line (scripts/overview.py) and, on a
-milestone (step done/blocked/dropped, goal status or PR changed, scope added mid-run), marks
-it so the Stop hook asks for the overview's prose to be refreshed. Prints the estimate
-(critical path, sum, time left) after step changes.
+milestone (a ★ step done, a step blocked/dropped, goal status or PR changed, scope added
+mid-run), marks it so the Stop hook asks for the overview's prose to be refreshed. A step set
+to `fixing` counts a fix round in `att`. Prints the estimate (critical path, sum, time left,
+calibrated by past goals) after step changes.
 """
 import datetime
 import os
@@ -117,21 +118,30 @@ def apply_updates(lines, rows, header, vals, row_id, updates):
                      "(a step that ran past midnight is fine with end=now).")
 
 
-MILESTONE_STEP = {"done", "blocked", "obsolete", "parked"}
+MILESTONE_STEP = {"blocked", "obsolete", "parked"}
 
 
 def set_row(lines, section, row_id, updates):
-    """Returns True when the change is a milestone (a step finished, blocked or dropped)."""
+    """Returns True when the change is a milestone: a step blocked or dropped, or a ★ step done.
+    An ordinary step finishing only moves the progress the overview's Status line already syncs.
+    A step going to `fixing` counts a fix round in `att`."""
     header, rows = table(lines, section)
     target = next((r for r in rows if cells(lines[r])[0] == row_id), None)
     if target is None:
         sys.exit(f"{row_id} not found in {section}")
     vals = (cells(lines[target]) + [""] * len(header))[: len(header)]
     before = vals[header.index("status")] if "status" in header else ""
+    new = updates.get("status")
+    if new == "fixing" and before != "fixing" and "att" in header and "att" not in updates:
+        a = vals[header.index("att")]
+        updates = dict(updates, att=str(int(a) + 1 if a.isdigit() else 1))
     apply_updates(lines, rows, header, vals, row_id, updates)
     lines[target] = render(vals)
     print(lines[target])
-    return "status" in header and updates.get("status") in MILESTONE_STEP and before != updates["status"]
+    if "status" not in header or not new or new == before:
+        return False
+    starred = "notes" in header and "★" in vals[header.index("notes")]
+    return new in MILESTONE_STEP or (new == "done" and starred)
 
 
 def add_row(lines, section, prefix, updates):
@@ -294,7 +304,7 @@ def main():
     if milestone:
         overview.milestone(goal)
     overview.sync(goal)
-    est = summary("\n".join(lines))
+    est = summary("\n".join(lines), path)
     if est and what != "--header":
         print(est)
 

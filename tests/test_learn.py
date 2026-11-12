@@ -94,6 +94,27 @@ class Learn(Base):
         self.assertIn(" — stated — last ", line)
 
 
+class LearnLean(Learn):
+    def test_similar_pattern_refused_new_forces(self):
+        self.learn("seen", "Picks the recommended options when asked")
+        r = self.run_s("learn.py", "seen", "Picks the recommended option when asked to", ok=False)
+        self.assertIn("SIMILAR, not added: - Picks the recommended options when asked", r)
+        self.assertIn('learn.py seen "Picks the recommended options when asked"', r)
+        self.learn("seen", "Picks the recommended option when asked to", "--new")
+        self.assertIsNotNone(self.section("Picks the recommended option when asked to")[1])
+        self.learn("seen", "Writes commit messages in English")  # unrelated: added
+        self.assertTrue(os.path.exists(self.path() + ".bak"))
+
+    def test_goals_keep_the_last_12(self):
+        for n in range(15):
+            self.learn("goal", f"goal {n} (fix, 1 steps): est {n + 1}m critical path / S, actual 1m / ~1k")
+        with open(self.path(), encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("- goal 2 ", text)
+        self.assertIn("- goal 3 ", text)
+        self.assertIn("- goal 14 ", text)
+
+
 class List(Base):
     def test_lists_open_first(self):
         self.new_goal("old-one")

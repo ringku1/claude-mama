@@ -10,9 +10,12 @@ no goal — the hooks never read transcripts to guess ownership.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
-- stop:         blocks the stop (with every problem listed) if this session's goal:
-                is `running` at ≥70% of its budget ceiling (ask: continue / cut scope / stop);
-                is `running` without a final `wait` log line; reached a milestone after overview.md was written;
+- stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted);
+                blocks the stop (with every problem listed) if this session's goal:
+                is `running` at ≥70% of its budget ceiling (autonomous: raise it within 2× and go on;
+                otherwise ask: continue / cut scope / stop);
+                is `running` without a final `wait`/`dispatch` log line; reached a milestone after
+                overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
                 or says `done` while close-check.py fails. The same problem list blocks only once
                 (kept in the goal's .last-block); a changed list blocks again.
@@ -117,10 +120,11 @@ def log_text(plan):
 
 
 def waiting_on_background(plan):
-    """True if the goal's last log line is `E<n> HH:MM wait ...` — ending the turn to wait on
-    background work (an agent, the gate) is legitimate; its notification wakes the session."""
+    """True if the goal's last log line is `E<n> HH:MM wait|dispatch ...` — ending the turn to
+    wait on background work (agents just dispatched, the gate) is legitimate; its notification
+    wakes the session. A dispatch line counts, so no extra `wait` line is needed after it."""
     lines = [l.strip() for l in log_text(plan).splitlines() if re.match(r"\s*[EDFQ]\d+ ", l)]
-    return bool(lines) and re.match(r"E\d+ \d\d:\d\d wait\b", lines[-1]) is not None
+    return bool(lines) and re.match(r"E\d+ \d\d:\d\d (wait|dispatch)\b", lines[-1]) is not None
 
 
 def unlearned(plan):
@@ -164,10 +168,20 @@ def close_problems(plan):
     return "" if r.returncode == 0 else r.stdout.strip()
 
 
-def measure_budget(plan, transcript):
-    """Write the measured spend into the plan header (mtime kept); return pct of ceiling or None."""
+def measure_budget(plan, transcript, closed=False):
+    """Write the measured spend into the plan header (mtime kept); return pct of ceiling or None.
+    A closed goal is measured once more (its final spend), then its cache is deleted, so later
+    turns skip it and no done goal keeps a cache on disk."""
     sp = _load("mama_spend", "spend.py")
+    cache = os.path.join(os.path.dirname(plan), sp.CACHE)
+    if closed and not os.path.exists(cache):
+        return None
     total = sp.measure(plan, transcript)
+    if closed:
+        try:
+            os.remove(cache)
+        except OSError:
+            pass
     if total is None:
         return None
     _, _, size = sp.window(plan)
@@ -205,20 +219,29 @@ def stop(inp, g):
         return  # a goal closed earlier — don't nag about it in later, unrelated turns
     problems = []
     try:
-        pct = measure_budget(g["plan"], inp.get("transcript_path", ""))
+        pct = measure_budget(g["plan"], inp.get("transcript_path", ""), closed=g["status"] not in OPEN)
     except Exception:
         pct = None
     if g["status"] == "running" and pct is not None and pct >= 70:
-        problems.append(
-            f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
-            "continue / cut scope / stop. On continue, raise the ceiling with headroom — at least the measured "
-            "spend + what's left estimated + 30% (e.g. budget='~…k / L 1.5M') — so it doesn't re-ask every turn.")
+        raise_to = ("raise the ceiling with headroom — measured spend + what's left estimated + 30% "
+                    "(e.g. budget='~…k / L 1.5M') — so it doesn't come back every turn")
+        if g["mode"] == "autonomous":
+            problems.append(
+                f"Budget at {pct}% of its ceiling. If what's left is in the approved plan and the new ceiling stays "
+                f"within 2× the approved one: {raise_to}, log `D budget raised to … (tag: auto)`, say so in the "
+                "overview, and continue. Otherwise (new scope, or past 2×) stop dispatching, set status waiting, "
+                "and ask the user: continue / cut scope / stop.")
+        else:
+            problems.append(
+                f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
+                f"continue / cut scope / stop. On continue, {raise_to}.")
     if g["status"] == "running" and not waiting_on_background(g["plan"]):
         problems.append(
             f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
-            "status (waiting / paused / blocked) — or, to wait on your own background work, log `E wait <what>` last.")
+            "status (waiting / paused / blocked) — or, to wait on your own background work, make `E dispatch …` "
+            "or `E wait <what>` the last log line.")
     if overview_stale(g["plan"]):
-        problems.append("A milestone (a step finished or blocked, the status, PR or scope changed) since overview.md "
+        problems.append("A milestone (a ★ step finished, a step blocked, the status, PR or scope changed) since overview.md "
                         "was written — regenerate overview.md (the user's only window); its Status line is synced for you.")
     elif g["status"] in OPEN:
         try:

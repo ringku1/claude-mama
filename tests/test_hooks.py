@@ -167,5 +167,57 @@ class Stop(HookBase):
         self.assertLess((time.time() - t) / 3, 3)
 
 
+class Lean(HookBase):
+    def spend(self, g, tokens):
+        """Append one API message of `tokens` to the session's transcript."""
+        os.makedirs(os.path.dirname(self.transcript("sess-a")), exist_ok=True)
+        self.n = getattr(self, "n", 0) + 1
+        with open(self.transcript("sess-a"), "a") as f:
+            f.write(json.dumps({"type": "assistant", "timestamp": utc(datetime.datetime.now()), "message": {
+                "id": f"m{self.n}", "usage": {"input_tokens": tokens, "output_tokens": 0}, "content": []}}) + "\n")
+
+    def test_dispatch_line_counts_as_waiting(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 S2")
+        self.assertEqual(self.hook("stop"), "")
+
+    def test_budget_at_70_autonomous_raises_itself(self):
+        g = self.running_goal()  # autonomous, M = 1M
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.spend(g, 800000)
+        reason = json.loads(self.hook("stop"))["reason"]
+        self.assertIn("Budget at 80%", reason)
+        self.assertIn("within 2× the approved one", reason)
+        self.assertIn("tag: auto", reason)
+
+    def test_budget_at_70_checkpointed_asks(self):
+        g = self.running_goal()
+        self.run_s("plan-set.py", self.plan(g), "--header", "mode=checkpointed")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        os.utime(os.path.join(g, "overview.md"))
+        self.spend(g, 800000)
+        reason = json.loads(self.hook("stop"))["reason"]
+        self.assertIn("ask the user: continue / cut scope / stop", reason)
+        self.assertNotIn("tag: auto", reason)
+
+    def test_closed_goal_measured_once_then_cache_deleted(self):
+        g = self.running_goal()
+        cache = os.path.join(g, ".spend-cache.json")
+        self.spend(g, 5000)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.hook("stop")
+        self.assertTrue(os.path.exists(cache))
+        s = self.read(self.plan(g)).replace("status: running", "status: aborted")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        self.spend(g, 4000)
+        self.hook("stop")
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~9k /")  # final spend written
+        self.assertFalse(os.path.exists(cache))
+        self.spend(g, 20000)
+        self.hook("stop")
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~9k /")  # closed and no cache: not measured again
+        self.assertFalse(os.path.exists(cache))
+
+
 if __name__ == "__main__":
     unittest.main()
