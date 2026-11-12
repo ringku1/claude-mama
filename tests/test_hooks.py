@@ -218,6 +218,22 @@ class Lean(HookBase):
         self.assertRegex(self.read(self.plan(g)), r"budget: ~9k /")  # closed and no cache: not measured again
         self.assertFalse(os.path.exists(cache))
 
+    def test_done_goal_cache_stays_deleted_after_the_close_check(self):
+        g = self.running_goal()
+        cache = os.path.join(g, ".spend-cache.json")
+        self.spend(g, 5000)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.hook("stop")  # running: measured, cache kept
+        self.assertTrue(os.path.exists(cache))
+        s = self.read(self.plan(g)).replace("status: running", "status: done")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        self.spend(g, 2000)
+        self.hook("stop")  # measures, deletes the cache, then runs close-check (which rebuilt it before)
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~7k /")
+        self.assertFalse(os.path.exists(cache))
+        r = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True, text=True, env=self.env())
+        self.assertFalse(os.path.exists(cache), r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

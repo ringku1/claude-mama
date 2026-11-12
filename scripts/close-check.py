@@ -135,6 +135,22 @@ def claimed_tokens(lessons, slug):
     return found[-1] if found else None
 
 
+def measured_spend(goal, head):
+    """The goal's measured token spend. A closed goal whose cache the Stop hook already deleted
+    reads the final number from the plan header instead of rebuilding the cache."""
+    if head.get("status") in ("done", "aborted") and not os.path.exists(os.path.join(goal, ".spend-cache.json")):
+        m = re.match(r"~(\d+)k", head.get("budget", ""))
+        return int(m.group(1)) * 1000 if m else None
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mama_spend", os.path.join(os.path.dirname(os.path.abspath(__file__)), "spend.py"))
+        sp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sp)
+        return sp.measure(os.path.join(goal, "plan.md"))
+    except Exception:
+        return None
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -210,14 +226,7 @@ def main():
     if not quick and not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
 
-    measured = None
-    try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("mama_spend", os.path.join(os.path.dirname(os.path.abspath(__file__)), "spend.py"))
-        sp = importlib.util.module_from_spec(spec); spec.loader.exec_module(sp)
-        measured = sp.measure(os.path.join(goal, "plan.md"))
-    except Exception:
-        pass
+    measured = measured_spend(goal, head)
     ml = claimed_tokens(lessons, slug)
     if measured and ml:
         claimed = float(ml[0]) * (1000 if ml[1] == "M" else 1)
