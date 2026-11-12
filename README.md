@@ -10,7 +10,7 @@ Works on **macOS, Linux and Windows**.
 
 **1. Install** — pick **one** of the two ways below, not both.
 
-**A. One line** (recommended; you type `/mama`). It also sets up git and Python if they're missing.
+**A. One line** (recommended). It also sets up git and Python if they're missing.
 
 macOS or Linux (Terminal):
 
@@ -24,7 +24,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
 ```
 
-**B. As a Claude Code plugin** (you type `/mama:mama` instead of `/mama`). You need git and Python 3.8+ already; on Windows, also [Git for Windows](https://gitforwindows.org).
+**B. As a Claude Code plugin.** You still type `/mama`; the command menu lists it as `/mama:mama`, the long form to use only if another `/mama` exists. You need git and Python 3.8+ already; on Windows, also [Git for Windows](https://gitforwindows.org).
 
 ```bash
 claude plugin marketplace add ringku1/claude-mama
@@ -35,7 +35,7 @@ To switch from one way to the other, remove the first one before installing the 
 
 **2. Restart Claude Code.**
 
-**3. Open your project in Claude Code and type** `/mama` (plugin: `/mama:mama`) followed by what you want:
+**3. Open your project in Claude Code and type** `/mama` followed by what you want:
 
 ```
 /mama add a price filter to the course list

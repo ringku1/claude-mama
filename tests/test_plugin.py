@@ -42,7 +42,7 @@ class Manifests(unittest.TestCase):
         self.assertEqual(entry["source"], "./")  # the repo root is the plugin, so SKILL.md stays put
 
     def test_skill_is_the_root_skill_md(self):
-        # a root SKILL.md loads only with no skills/ dir and no "skills" key; its name gives /mama:mama
+        # a root SKILL.md loads only with no skills/ dir and no "skills" key; its name gives /mama:mama, which /mama also reaches
         self.assertFalse(os.path.exists(os.path.join(SKILL, "skills")))
         self.assertNotIn("skills", load(PLUGIN))
         with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as f:
