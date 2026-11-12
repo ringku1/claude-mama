@@ -16,7 +16,8 @@ Guards (they enforce the skill's rules, so state can't drift):
 - a step set to running/testing/fixing gets start=now if empty; done/obsolete gets end=now if empty
 - a step set to running whose deps aren't done prints a WARNING
 - header status approved/running needs mode checkpointed|autonomous|quick (ask the user); the first
-  approval of a full goal also needs an `E research` log line (rules/research.md) and a budget ceiling
+  approval of a full goal also needs `E research`, `E expectations` and `E playback` log lines
+  (rules/research.md, rules/questions.md) and a budget ceiling
 - budget is always `~<spent>k / <size>`, size S, M or `L <n>k|M` (e.g. `L 800k`, `L 1.5M`): the Stop hook measures
   the spend part and reads the ceiling from the size, so neither can be dropped
 - pr is one of ask-at-end | auto | none | declined | <url>
@@ -234,6 +235,13 @@ def guard_header(path, lines, updates):
     if first_go and mode != "quick" and not re.search(r"^E\d+ \S+ research", log, re.M):
         sys.exit("REFUSED: no research recorded. Run the research lenses (rules/research.md), then log "
                  "`E research: <n> findings, <m> cases, <k> open` — or `E research none: <why>` if this goal needs none.")
+    if first_go and mode != "quick" and not re.search(r"^E\d+ \S+ expectations\b", log, re.M):
+        sys.exit("REFUSED: expectations not covered. Walk the checklist in rules/questions.md → Expectations "
+                 "(each point settled with a source, or asked), then log `E expectations: <n> settled, <m> asked`.")
+    if first_go and mode != "quick" and not re.search(r"^E\d+ \S+ playback\b", log, re.M):
+        sys.exit("REFUSED: no playback. Show the user what they'll get as concrete examples and let them confirm "
+                 "or correct it (rules/questions.md → Playback), then log `E playback: confirmed` or "
+                 "`E playback: corrected <n>`.")
     budget = updates.get("budget", header_value(lines, "budget"))
     if first_go and mode != "quick" and not SIZE.fullmatch(budget.split("/")[-1].strip()):
         sys.exit("REFUSED: no budget ceiling. Set the size with the approval: budget=S, budget=M "

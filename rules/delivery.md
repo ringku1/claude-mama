@@ -63,7 +63,7 @@ Comment right after plan approval (what this goal will change, 1-2 lines), after
 1. Regenerate `overview.md` with the Final report: what was built/found, how verified, decisions worth review, parked follow-ups, spend.
 2. Learning — every item is required:
    - `<store>/lessons.md` (append under `scripts/lock.py <store>/.shared.lock`) — one metrics line, then any lessons:
-     `<date> <slug> <type> | steps <n> | time est <m>m critical path (sum <m>m) / actual <m>m (active <m>m) | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
+     `<date> <slug> <type> | steps <n> | time est <m>m critical path (sum <m>m) / actual <m>m (active <m>m) | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | hunt rounds <n> (real bugs <n>) | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
      Actual time = first to last log line, across days (log.py writes a `-- YYYY-MM-DD` marker when the date changes); active excludes waits for the user and idle gaps over 2h. Tokens are measured — take them from the `METRICS:` line close-check prints (run it first; it drafts this line).
    - `<store>/profile.md` — update any fact this goal changed (a command, a convention, a "keep X in sync" that's now shared) so the next goal doesn't read a stale profile.
    - `~/.claude/mama/patterns.md` via `scripts/learn.py` — `seen` for each choice the user made this goal (mode, PR, branch), and `goal "<kind, steps>: est <m>m critical path / <size>, actual <m>m (active <m>m) / <n>k measured"` — close-check prints it as `LEARN:` (never guessed).

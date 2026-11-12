@@ -32,6 +32,7 @@ class CloseBase(Base):
         self.run_s("plan-set.py", p, "S1", "status=running")
         self.run_s("plan-set.py", p, "S1", "status=done")
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed")
         open(os.path.join(g, "overview.md"), "w", encoding="utf-8").write(
             "# Demo\n\n**Status:** Done\n\n## Final report\n\nok\n")
         open(os.path.join(self.store, "lessons.md"), "w", encoding="utf-8").write(
@@ -39,6 +40,34 @@ class CloseBase(Base):
         open(os.path.join(self.store, "profile.md"), "w", encoding="utf-8").write("repo facts\n")
         open(os.path.join(self.home, ".claude", "mama", "patterns.md"), "a", encoding="utf-8").write("# How you work\n")
         return g
+
+    def test_bug_hunt_must_end_clean(self):
+        g = self.ready_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "hunt 2: 4 found, 2 real, 2 fixed")
+        out = self.close(g, ok=False)
+        self.assertIn("the last bug hunt (round 2) found 2 real bug(s)", out)
+        self.run_s("log.py", log, "E", "hunt 3: 1 found, 0 real, 0 fixed")
+        out = self.close(g, ok=True)
+        self.assertIn("hunt rounds 3 (real bugs 2)", out)  # metrics draft
+
+    def test_known_issues_accepted_by_the_user_close(self):
+        g = self.ready_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "hunt 4: 3 found, 1 real, 0 fixed")
+        self.close(g, ok=False)
+        self.run_s("log.py", log, "D", "deliver with 1 known issue listed in the report (tag: user)")
+        self.assertIn("known issue", self.read(log))
+        self.close(g, ok=False)  # "known issue" singular isn't the agreed marker
+        self.run_s("log.py", log, "D", "deliver with known issues listed in the report (tag: user)")
+        self.close(g, ok=True)
+
+    def test_hunt_none_and_research_goals(self):
+        g = self.ready_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt none: no code changed")
+        self.close(g, ok=True)
+        r = self.run_s("new-goal.py", self.store, "study", "research", "t").splitlines()[0]
+        self.assertNotIn("bug hunt", self.close(r))
 
     def close(self, g, ok=None):
         r = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True,

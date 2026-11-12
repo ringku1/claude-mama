@@ -1,6 +1,6 @@
 # The loop
 
-Run until every criterion has evidence. Builder and checker are kept apart where it matters, because a worker grading its own judgement passes things that don't work. Where the proof is a command result (tests, typecheck), the command is the independent judge.
+Run until every criterion has evidence and a bug hunt comes back clean: build → verify → hunt for bugs → fix → hunt again. Builder and checker are kept apart where it matters, because a worker grading its own judgement passes things that don't work. Where the proof is a command result (tests, typecheck), the command is the independent judge.
 
 ## Per step, by kind
 
@@ -10,6 +10,7 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 | fix      | same; first write a test that reproduces the bug          | the test failed before the fix and passes after; related tests pass                    | commit                        |
 | research | you or read-only agents in parallel                       | findings you read yourself are `verified`; agent-reported findings are spot-checked by you, and the report marks which were confirmed by you vs. reviewer-only — never call reviewer-only findings verified; a checker agent only for claims going into a deliverable | findings in log / deliverable |
 | document | you or a writer agent                                     | reader check: fits audience, meets criteria, every factual claim sourced, no loop state | file at chosen path           |
+| hunt     | `/code-review` + an edge-case agent (see Bug hunt)        | a round with 0 real bugs                                                                 | hunt line in log              |
 | decide   | you                                                       | user answer, or decision rules applied and logged                                        | decision line                 |
 | release  | you                                                       | `rules/delivery.md`                                                                      | push / PR                     |
 
@@ -32,12 +33,28 @@ Run until every criterion has evidence. Builder and checker are kept apart where
 
 **Pipeline**: verify step A while work on B continues; no phase barriers. **Skip redundant verifies**: a done step whose covered files haven't changed isn't re-run.
 
+## Bug hunt — until a round is clean
+
+Steps passing their own verify doesn't mean the whole works. When every build and fix step is done, and before the pre-delivery gate, hunt for bugs across the goal's whole change, fix what is real, and hunt again.
+
+**One round** (k = 1, 2, …), both in parallel:
+- **Review**: the built-in `/code-review high <goal branch>` (Skill tool) on the goal's changes since its base. Round 2 onwards: only the commits since the last round, plus the code they call.
+- **Expectations check**: one read-only agent gets the confirmed playback examples, the criteria, the `case:` lines and the diff. For each one it answers: handled? where (file:line)? proven by which test? It returns only the gaps, not a summary.
+
+**Triage every finding before fixing it**: reproduce it with a failing test or a command. Reproduced = real. Not reproducible, or out of scope = not real; log why in one line (`F … not a bug: …`) and park out-of-scope ones. A missing test for a promised behaviour is real: the fix is the test, plus a code fix if the test fails.
+
+**Fix**: every real bug becomes a fix step (`plan-set.py <plan> S+ kind=fix …`), test first, and runs through the normal cycle, in parallel by area. Then log the round: `E hunt <k>: <n> found, <r> real, <x> fixed`.
+
+**Stop rule**: a round with **0 real** bugs ends the hunt. While rounds keep finding real bugs, go again. After 4 rounds that still find some, stop: set status `waiting` and ask: hunt again / deliver with the known issues listed in the report / stop. "Deliver" is logged as `D deliver with known issues … (tag: user)`. The close check refuses a code goal whose last hunt wasn't clean, unless that decision follows it.
+
+**Quick goals**: one light round, `/code-review low` on the change with no expectations agent. Fix what it confirms and don't repeat. **No code changed** (research, docs only): log `E hunt none: <why>`.
+
 ## Milestones and checkpoints
 
 - Milestones are steps marked ★ in `plan.md` (`rules/planning.md`).
 - At each ★: a **drift check** (recent work vs Goal and non-goals; correct and log if off).
 - **Checkpointed mode** pauses at each ★ and always once before delivery (before the push / before the deliverable is final): let running steps finish, dispatch nothing new, set goal status `waiting`, regenerate overview with what's ready to look at, log `checkpoint`, wait for the user's go. Autonomous: log and continue.
-- **Before delivery**: run the full gate, then confirm every criterion has evidence. If any criterion's proof involves judgement (behaviour read from a diff, a doc's accuracy, "the test really covers X"), one independent checker agent reviews those criteria — catches "claimed done, isn't". If every criterion is proven by a command result, the full gate is the independent check; no agent. A checker that already covered all criteria in the final step counts.
+- **Before delivery**: the bug hunt is clean (above); run the full gate, then confirm every criterion has evidence. If any criterion's proof involves judgement (behaviour read from a diff, a doc's accuracy, "the test really covers X"), one independent checker agent reviews those criteria — catches "claimed done, isn't". If every criterion is proven by a command result, the full gate is the independent check; no agent. A checker that already covered all criteria in the final step counts.
 - Order: pre-delivery checks first, then the pre-delivery checkpoint, so the user sees the result.
 
 ## Guards

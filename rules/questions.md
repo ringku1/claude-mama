@@ -1,6 +1,6 @@
 # Questions
 
-Questions turn a vague goal into specific context. Every question must be one the code, docs, lessons or profile couldn't answer, and whose answer would change the plan.
+Questions turn a vague goal into specific context, so the result matches what the user expects in every way. Every question must be one the code, docs, lessons or profile couldn't answer, and whose answer would change the work.
 
 ## Before asking
 
@@ -12,18 +12,37 @@ Questions turn a vague goal into specific context. Every question must be one th
 - **Cover the case map**: walk every `case:` line. A case the code, precedent, the input or patterns settles → decide, log it (`inferred`), and list the product-facing ones in the overview's Key decisions. A case left open whose answer changes the work → a question. Several small open cases in one area → one question with the recommended handling for all of them.
 - **Pre-mortem**: imagine the goal failed. The likely reasons are your most valuable questions.
 
-## Categories (skip what doesn't apply)
+## Expectations — what "done right" means to the user
 
-1. Goal type, if ambiguous (build / fix / research / mixed)
-2. Scope & non-goals
-3. Behaviour & edge cases (the open cases from research)
-4. Data / API shape
-5. UI / design reference
-6. Testing — which tests, what counts as proof
-7. Constraints — repo rules, performance, security
-8. Deliverables — what files, where, for whom
+The work is judged by what the user expected, not by what the plan said. Before asking, walk this checklist. Settle each point from the input, the code, precedent or patterns, citing the source and logging a `D … (tag: inferred)`. Otherwise ask it. A point that can't apply gets one word in the log ("n/a: no UI"). Don't fold points into a vague "anything else?".
 
-### Always asked
+1. **Outcome** — what the user sees, gets or can do when it's done, in their words. What they'll check first.
+2. **People & access** — who uses it, which roles or permissions, what others must not see or do.
+3. **Behaviour & edge cases** — the open `case:` lines from research: empty, limits, errors, concurrency, undo, old data.
+4. **Look & copy** — the design or screen to follow, wording, states (loading, empty, error), and what must look exactly like an existing screen.
+5. **Data & interfaces** — shapes, names, migrations, API contract, compatibility with existing clients.
+6. **Speed & scale** — data sizes and response times that must hold; "no worse than today" counts.
+7. **Must not change** — existing behaviour, screens, APIs or other teams' work that must stay as is.
+8. **Proof** — which tests or checks prove it, and what the user will try by hand.
+9. **Delivery** — base branch, PR, where deliverables go (see "Always asked").
+
+Research goals use the same list where it fits: outcome = the question answered and how deep, people = who reads it, proof = how claims are sourced, delivery = format and path.
+
+After the batch, log `E expectations: <n> settled, <m> asked` — plan approval is refused without it.
+
+## Playback — confirm before planning
+
+After the answers, and before the plan, show the user what they will get, so a wrong picture is caught before any work. One AskUserQuestion with a preview:
+
+- 4–8 **concrete examples** of the finished work, each one observable: "A teacher with no files opens Storage → sees 'No files yet' and an Upload button." Cover the main path, the edge cases the user cares about, and one example of each must-not-change.
+- **Not included**: the non-goals, in one line each.
+- Options: "Yes, that's what I expect (Recommended)" / "Change something" (they type what).
+
+Corrections become `D … (tag: user)` lines and change the examples. Show the playback again only if a correction changed the outcome itself. Log `E playback: confirmed` or `E playback: corrected <n>`; plan approval is refused without it. The confirmed examples become the criteria (`rules/planning.md`) and are what the bug hunt checks against (`rules/loop.md`).
+
+Quick goals skip the checklist log and the playback; their one-line task is the example.
+
+## Always asked
 
 | Goal                         | Must ask                                                                                                                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -39,7 +58,7 @@ Questions turn a vague goal into specific context. Every question must be one th
 ## How to ask
 
 - AskUserQuestion: ≤4 questions per screen, 2-4 options, recommended first with "(Recommended)", one-line trade-off each. The user can always type their own.
-- Broad → specific; answers narrow the next round. Stop by ~3 rounds — needing more means the goal should be split; propose that.
+- Broad → specific; answers narrow the next round. Ask every checklist point that is still open, even if that takes a third round; more than ~3 rounds means the goal should be split, so propose that. Each option names its concrete effect ("the list shows deleted files greyed out"), never an abstract label.
 - Log each question as a `Q` line before asking.
 
 ## After answers

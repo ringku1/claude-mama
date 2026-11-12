@@ -2,6 +2,8 @@
 """Check a mama goal is ready to close, and draft its lessons metrics line.
 
 Usage: close-check.py <store>/<slug>
+Checks evidence, step times, placeholders, Trello, metrics, patterns, profile, commits, and —
+for build/fix/mixed goals — that the last bug-hunt round found 0 real bugs.
 Prints each missing item, then a prefilled metrics line (fill the `?` fields from memory
 of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
@@ -135,6 +137,37 @@ def claimed_tokens(lessons, slug):
     return found[-1] if found else None
 
 
+HUNT = re.compile(r"^E\d+ \S+ hunt (\d+|none)\b(.*)$", re.M)
+
+
+def hunt_problems(log, head, quick):
+    """Code goals close only after a bug hunt came back clean (rules/loop.md → Bug hunt): the last
+    `E hunt <k>: … <r> real …` line has 0 real bugs, or the user accepted known issues after it.
+    Quick goals need one light round; `E hunt none: <why>` when no code changed."""
+    if head.get("type") not in ("build", "fix", "mixed"):
+        return []
+    hunts = list(HUNT.finditer(log))
+    if not hunts:
+        return ["no bug hunt logged — run rules/loop.md → Bug hunt and log each round as "
+                "`E hunt <k>: <n> found, <r> real, <x> fixed` (or `E hunt none: <why>` if no code changed)"]
+    last = hunts[-1]
+    if quick or last.group(1) == "none":
+        return []
+    m = re.search(r"(\d+) real", last.group(2))
+    if m is None:
+        return [f"hunt line has no real-bug count: {last.group(0)!r} — log `E hunt <k>: <n> found, <r> real, <x> fixed`"]
+    if int(m.group(1)) and not re.search(r"^D\d+ \S+ .*known issues.*tag: user", log[last.end():], re.M):
+        return [f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them and hunt "
+                "again until a round is clean, or the user accepts them (`D … known issues … (tag: user)`)"]
+    return []
+
+
+def hunt_summary(log):
+    rounds = [h for h in HUNT.finditer(log) if h.group(1) != "none"]
+    real = sum(int(m.group(1)) for h in rounds for m in [re.search(r"(\d+) real", h.group(2))] if m)
+    return f"hunt rounds {len(rounds)} (real bugs {real})"
+
+
 def measured_spend(goal, head):
     """The goal's measured token spend. A closed goal whose cache the Stop hook already deleted
     reads the final number from the plan header instead of rebuilding the cache."""
@@ -222,6 +255,7 @@ def main():
         missing.append("overview.md has no ## Final report (what was done, how verified, decisions, follow-ups)")
     missing += overview_problems(ov, goal)
     missing += commit_problems(goal, head)
+    missing += hunt_problems(log, head, quick)
 
     if not quick and not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
@@ -246,7 +280,7 @@ def main():
     reversed_ = len(re.findall(r"supersedes", log))
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
             f"time est {est}m critical path (sum {est_sum}m) / actual {mins} | tokens est {size} / ~{spent} | "
-            f"questions {questions} (changed plan: ?) | fix rounds {att} | "
+            f"questions {questions} (changed plan: ?) | fix rounds {att} | {hunt_summary(log)} | "
             f"checker findings ? | compactions {compactions} | "
             f"wrong assumptions ? | reversed decisions {reversed_}")
 

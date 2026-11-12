@@ -34,6 +34,8 @@ class HookBase(Base):
         else:
             g = self.new_goal(slug, sid=sid)
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test", sid=sid)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "expectations: 9 settled, 0 asked", sid=sid)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "playback: confirmed", sid=sid)
         self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v", sid=sid)
         self.run_s("plan-set.py", self.plan(g), "--header", "status=running", "mode=autonomous", "budget=M", sid=sid)
         os.utime(os.path.join(g, "overview.md"))  # overview fresh

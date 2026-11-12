@@ -3,13 +3,21 @@
 Never touches the real ~/.claude: every script runs with HOME set to a temp dir and a fake
 CLAUDE_CODE_SESSION_ID.
 """
+import atexit
 import datetime
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+
+# Every temp dir the tests make (homes, repos, big transcripts) goes under one root that is
+# removed when the run ends, so test runs leave nothing behind in the system temp folder.
+_ROOT = tempfile.mkdtemp(prefix="mama-tests-")
+tempfile.tempdir = _ROOT
+atexit.register(shutil.rmtree, _ROOT, True)
 
 SKILL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 S = os.path.join(SKILL, "scripts")
@@ -62,6 +70,8 @@ class Base(unittest.TestCase):
         """Replace the template step/criterion rows with real ones (research already logged)."""
         p = self.plan(goal)
         self.run_s("log.py", os.path.join(goal, "log.md"), "E", "research: 2 findings, 1 cases, 0 open")
+        self.run_s("log.py", os.path.join(goal, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(goal, "log.md"), "E", "playback: confirmed")
         s = self.read(p)
         s = re.sub(r"^\| C1 .*$", "| C1  | it works | S1 | — |", s, flags=re.M)
         s = re.sub(r"^\| S1 .*$", "| S1  | build | thing | — | a.go | go test | todo | 0 | 10m |  |  |  |", s, flags=re.M)

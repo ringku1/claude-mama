@@ -22,6 +22,8 @@ class PlanBase(Base):
         self.g = self.new_goal()
         self.p = self.plan(self.g)
         self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "research none: test")
+        self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", self.p, "S+", "title=a", "verify=v")
 
     def ps(self, *args, ok=True):
@@ -125,6 +127,25 @@ class Lock(PlanBase):
         out, err = proc.communicate(timeout=20)
         self.assertEqual(proc.returncode, 0, out + err)
         self.assertTrue(self.row().endswith("| x |"))
+
+
+class Expectations(Base):
+    def test_approval_needs_expectations_then_playback(self):
+        g = self.new_goal()
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S+", "title=a", "verify=v")
+        self.run_s("log.py", log, "E", "research none: test")
+        go = ("plan-set.py", p, "--header", "status=approved", "mode=autonomous", "budget=S")
+        self.assertIn("expectations not covered", self.run_s(*go, ok=False))
+        self.run_s("log.py", log, "E", "expectations: 7 settled, 2 asked")
+        self.assertIn("no playback", self.run_s(*go, ok=False))
+        self.run_s("log.py", log, "E", "playback: corrected 1")
+        self.run_s(*go)
+
+    def test_quick_goal_needs_neither(self):
+        g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]
+        self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=running")
 
 
 class Lean(PlanBase):

@@ -1,6 +1,6 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks one batch of questions, plans, then loops dev → test → fix with as many parallel agents as the work allows until every done-criterion has evidence, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks questions that pin down what the user expects and confirms them as concrete examples, plans, then loops dev → test → fix with as many parallel agents as the work allows, and hunts for bugs and fixes them until a hunt comes back clean, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
 argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | fix [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
@@ -89,7 +89,7 @@ Read-only. Read `rules/research.md` and follow it: parallel lens agents map ever
 
 ### 3. Questions
 
-Read `rules/questions.md`, then ask: one batch, specific, multiple choice with a recommended option — covering every open case from research.
+Read `rules/questions.md`, then ask: specific, multiple choice with a recommended option, covering the expectations checklist and every open case from research. Then the **playback**: show what the user will get as concrete examples, to confirm or correct before planning.
 
 ### 4. Plan
 
@@ -97,7 +97,7 @@ Read `rules/planning.md`. Fill `plan.md` with `plan-set.py` (`S+` / `C+` fill th
 
 ### 5. Loop
 
-Read `rules/loop.md`. Dev → verify → fix until every criterion has evidence. Commit each stable step. Interruptions and changes: `rules/changes.md`.
+Read `rules/loop.md`. Dev → verify → fix until every criterion has evidence, then **hunt for bugs** (`/code-review` + an expectations check) → fix → hunt again, until a round finds no real bug (cap 4 rounds, then ask). Commit each stable step. Interruptions and changes: `rules/changes.md`.
 
 ### 6. Deliver & close
 
@@ -105,7 +105,7 @@ Read `rules/delivery.md`. Merge latest base, push, PR per the user's choice. Fin
 
 ## Quick mode
 
-For small tasks (≈ under 30 minutes, one area). Intake with `new-goal.py … --quick`: mode is preset, the overview is 3 lines (task, status, done means / result). Skip research agents, `profile.md`, `lessons.md` and patterns bookkeeping — the close check doesn't ask for them. Ask the questions first — only base branch, and PR choice if code changes — then show the plan, 1-3 steps of one line each, for approval; proceed on approval. Same loop, commit and push rules. If it grows past that, say so and offer to continue as a full goal (set `mode` to checkpointed/autonomous; the close check then asks for everything).
+For small tasks (≈ under 30 minutes, one area). Intake with `new-goal.py … --quick`: mode is preset, the overview is 3 lines (task, status, done means / result). Skip research agents, `profile.md`, `lessons.md` and patterns bookkeeping — the close check doesn't ask for them. Ask the questions first — only base branch, and PR choice if code changes — then show the plan, 1-3 steps of one line each, for approval; proceed on approval. Same loop, commit and push rules, with one light bug-hunt round (`/code-review low`) on a code change. If it grows past that, say so and offer to continue as a full goal (set `mode` to checkpointed/autonomous; the close check then asks for everything).
 
 ## Re-entry (resume, after compaction, new session)
 
@@ -123,7 +123,7 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 
 ## Guards (scripts and hooks enforce these — don't work around them)
 
-- `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses a full goal's first approval until research is logged (`E research …`), refuses `status=done` until `close-check.py` passes (criteria evidence, step times, placeholders, Trello, metrics, patterns, profile — or `E profile none`), refuses a typed end time before the start (a step that crossed midnight: `end=now`), keeps `budget` as `~<n>k / S|M|L <n>k|M` (e.g. `L 800k`, `L 1.5M`) and refuses a full goal's first approval without the size (`budget=…` in the same call), allows `pr` only as `ask-at-end | auto | none | declined | <url>`, fills the template's blank rows on `S+`/`C+`, parks ideas with `P+`, keeps the overview's Status line in sync, prints the estimate (critical path, sum, steps at once), and reminds you of the Trello start comment.
+- `plan-set.py` stamps step start/end itself, warns on a step started before its deps, refuses `status=approved|running` without a mode, refuses a full goal's first approval until research, the expectations checklist and the playback are logged (`E research …`, `E expectations …`, `E playback …`), refuses `status=done` until `close-check.py` passes (criteria evidence, step times, placeholders, Trello, metrics, patterns, profile — or `E profile none` — and, for code goals, a last bug-hunt round with 0 real bugs), refuses a typed end time before the start (a step that crossed midnight: `end=now`), keeps `budget` as `~<n>k / S|M|L <n>k|M` (e.g. `L 800k`, `L 1.5M`) and refuses a full goal's first approval without the size (`budget=…` in the same call), allows `pr` only as `ask-at-end | auto | none | declined | <url>`, fills the template's blank rows on `S+`/`C+`, parks ideas with `P+`, keeps the overview's Status line in sync, prints the estimate (critical path, sum, steps at once), and reminds you of the Trello start comment.
 - Every write through `log.py` / `plan-set.py` / `new-goal.py` records which session worked on which goal (`~/.claude/mama/activity.log`, from `CLAUDE_CODE_SESSION_ID`). That record — not guessing — tells the hooks which goal is this session's (a goal no record ties to this session is never claimed) and tells `spend.py` whose tokens count: it counts the sessions recorded there, plus a transcript scan only for goals started before `activity.log` existed. Writes need `CLAUDE_CODE_SESSION_ID` (Claude Code sets it); without it the scripts warn and record nothing. Writing goal files any other way leaves the goal unowned and unmeasured.
 - Waiting for the user is measured, so estimates calibrate on active time: `plan-set --header status=waiting` logs `E waiting` and the switch back logs `E resume` on their own; questions are `Q` lines and their answers `D … tag: user`.
 - The close check also refuses this goal's commits (on the branch since `started:`, also when base == branch) with attribution lines or loop internals (mama, plan.md, or step/criterion references like "step S3" / "criterion C2" — bare IDs aren't refused), and the overview is checked (close and every turn) for this goal's own step/log IDs, file:line refs (URLs and host:port don't count) and length over one screen.

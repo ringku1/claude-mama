@@ -23,6 +23,8 @@ Write criteria before steps. Each must be checkable by a command, a test, or a c
 
 Check, fix, then present:
 - [ ] Every done criterion maps to ≥1 step
+- [ ] Every confirmed playback example (`rules/questions.md`) is a criterion or part of one, proven by a test or a check the user can repeat
+- [ ] Code goals end with one `hunt` step (deps: every build and fix step; est 10–15m; the release step depends on it) — `rules/loop.md` → Bug hunt
 - [ ] Every `case:` from research is covered — by a criterion or a step's verify, a logged decision, or a parked line
 - [ ] No dependency cycles; no ownership overlap between parallel steps
 - [ ] Every step has a verify that actually exercises its criterion

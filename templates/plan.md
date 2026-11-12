@@ -18,7 +18,7 @@ started: <YYYY-MM-DD HH:MM>
 | S1  | build |       | —    |      |        | todo   | 0   | 15m |       |     |       |
 
 <!--
-kind: build | fix | research | document | decide | release
+kind: build | fix | research | document | decide | hunt | release
 status: todo | running | testing | fixing | done | blocked | obsolete | parked
 milestone: "★" in notes on a step that ends a milestone (rules/planning.md → Milestones). Goal status `waiting` = stopped at a checkpoint for the user.
 notes: confidence (L = research/ask first), decision refs (D3), evidence pointer, covered files after pass.

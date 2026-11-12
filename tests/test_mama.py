@@ -295,6 +295,7 @@ class CloseCheck(Base):
         self.run_s("plan-set.py", p, "S1", "status=running")
         self.run_s("plan-set.py", p, "S1", "status=done")
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed")
         open(os.path.join(g, "overview.md"), "w").write("# Demo\n\n**Status:** Done\n\n## Final report\n\nok\n")
         open(os.path.join(self.store, "lessons.md"), "w").write(
             f"- {datetime.date.today()} demo build | steps 1 | tokens est S / ~0k\n")
@@ -343,6 +344,8 @@ class Lean(Base):
         self.run_s("plan-set.py", p, "S1", "status=done")
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
         open(os.path.join(g, "overview.md"), "w").write("# Tiny\n\n**Status:** Done · 1 of 1\n")
+        self.assertIn("no bug hunt logged", self.run_s("close-check.py", g, ok=False))
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 1 found, 1 real, 1 fixed")  # one light round
         self.assertIn("OK", self.run_s("close-check.py", g))  # no lessons, profile or patterns needed
 
     def test_waiting_minutes(self):
@@ -466,6 +469,8 @@ class PlanAndOverview(Base):
         out = self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", ok=False)
         self.assertIn("no research recorded", out)
         self.run_s("log.py", log, "E", "research none: one-line config change")
+        self.run_s("log.py", log, "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", log, "E", "playback: confirmed")
         self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", "budget=S")
         q = self.new_goal("tiny")  # quick goals skip research
         self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
@@ -586,6 +591,8 @@ class Portable(Base):
         os.symlink(self.repo, link)
         g = self.run_s("new-goal.py", os.path.join(link, ".claude", "mama"), "demo", "build", "t").splitlines()[0]
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", os.path.join(g, "plan.md"), "S+", "title=a", "verify=v")
         self.run_s("plan-set.py", os.path.join(g, "plan.md"), "--header", "status=running", "mode=autonomous", "budget=S")
         out = json.loads(Hook.hook.__get__(self)("sessionstart"))["hookSpecificOutput"]["additionalContext"]
