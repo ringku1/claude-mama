@@ -236,6 +236,21 @@ class Lean(HookBase):
         self.assertRegex(self.read(self.plan(g)), r"budget: ~9k /")  # closed and no cache: not measured again
         self.assertFalse(os.path.exists(cache))
 
+    def test_earlier_closed_goal_cache_deleted_after_moving_on(self):
+        g = self.running_goal()
+        cache = os.path.join(g, ".spend-cache.json")
+        self.spend(g, 5000)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.hook("stop")
+        self.assertTrue(os.path.exists(cache))
+        s = self.read(self.plan(g)).replace("status: running", "status: aborted")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        nxt = self.running_goal("next")  # closed and the next goal started before any turn ended
+        self.run_s("log.py", os.path.join(nxt, "log.md"), "E", "wait agent")
+        self.hook("stop")
+        self.assertFalse(os.path.exists(cache))
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~5k /")  # final spend kept
+
     def test_done_goal_cache_stays_deleted_after_the_close_check(self):
         g = self.running_goal()
         cache = os.path.join(g, ".spend-cache.json")

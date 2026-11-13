@@ -143,7 +143,7 @@ PUSH = re.compile(r"^E\d+ \S+ push(ed)?\b", re.M)
 
 def hunt_problems(log, head, quick):
     """Code goals close only after a bug hunt came back clean (rules/loop.md → Bug hunt): each
-    round names its method (`/code-review …`); the last `E hunt <k>: … <r> real …` line has 0 real
+    round names its method (`/code-review …`, high on a full goal); the last `E hunt <k>: … <r> real …` line has 0 real
     bugs, or the user accepted known issues after it; and the last push comes after the last hunt,
     so what was delivered was hunted.
     Quick goals need one light round; `E hunt none: <why>` when no code changed."""
@@ -160,6 +160,10 @@ def hunt_problems(log, head, quick):
     if unnamed:
         out.append(f"hunt round {unnamed[0]} doesn't name /code-review — a test run is verify, not a hunt; run "
                    "/code-review (rules/loop.md → Bug hunt) and log `E hunt <k>: … — /code-review <level> …`")
+    light = [h.group(1) for h in rounds if re.search(r"/code-review (low|medium)\b", h.group(2))]
+    if light and not quick:
+        out.append(f"hunt round {light[0]} used a light /code-review — a full goal hunts with "
+                   "`/code-review high` every round (quick goals use low)")
     last = hunts[-1]
     pushes = list(PUSH.finditer(log))
     if pushes and pushes[-1].start() < last.start() and last.group(1) != "none":

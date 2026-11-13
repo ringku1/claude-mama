@@ -67,6 +67,11 @@ class CloseBase(Base):
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 2: 0 found, 0 real, 0 fixed (full suites pass)")
         self.assertIn("hunt round 2 doesn't name /code-review", self.close(g, ok=False))
 
+    def test_full_goal_hunts_with_code_review_high(self):
+        g = self.ready_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 2: 0 found, 0 real, 0 fixed — /code-review low")
+        self.assertIn("hunt round 2 used a light /code-review", self.close(g, ok=False))
+
     def test_push_before_the_hunt_refused_until_pushed_again(self):
         g = self.ready_goal()
         log = os.path.join(g, "log.md")

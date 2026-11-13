@@ -10,7 +10,8 @@ no goal — the hooks never read transcripts to guess ownership.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
-- stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted);
+- stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted, also
+                for the session's earlier closed goals);
                 blocks the stop (with every problem listed) if this session's goal:
                 is `running` at ≥70% of its budget ceiling (autonomous: raise it within 2× and go on;
                 otherwise ask: continue / cut scope / stop); is a quick goal past 300k tokens or 30
@@ -218,6 +219,19 @@ def measure_budget(plan, transcript, closed=False):
     return (round(100 * total / c) if c else None), total
 
 
+def drop_closed_caches(inp, earlier):
+    """The session's earlier goals that are closed but still hold a spend cache (the session moved
+    on to another goal before the Stop hook saw them closed): measure each once more, so the plan
+    keeps its final spend, and delete the cache."""
+    for g in earlier:
+        if g["status"] in OPEN or not os.path.exists(os.path.join(g["dir"], ".spend-cache.json")):
+            continue
+        try:
+            measure_budget(g["plan"], inp.get("transcript_path", ""), closed=True)
+        except Exception:
+            pass
+
+
 def block_once(goal_dir, reason):
     """Print the block unless it repeats the last block for this goal word for word."""
     last = os.path.join(goal_dir, ".last-block")
@@ -313,6 +327,7 @@ def main(mode):
     if mode == "stop":
         if not inp.get("stop_hook_active") and mine:
             stop(inp, mine[-1])
+            drop_closed_caches(inp, mine[:-1])
         return
 
     if mode == "precompact":
