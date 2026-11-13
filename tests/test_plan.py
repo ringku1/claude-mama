@@ -83,9 +83,12 @@ class Approval(PlanBase):
         self.ps("--header", "budget=M")
         self.ps("--header", "status=running", "mode=autonomous")
 
-    def test_quick_goal_needs_none(self):
+    def test_quick_goal_needs_only_a_one_line_playback(self):
         q = self.new_goal("tiny")
         self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
+        out = self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick", ok=False)
+        self.assertIn("in one line", out)
+        self.run_s("log.py", os.path.join(q, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
 
 
@@ -142,9 +145,10 @@ class Expectations(Base):
         self.run_s("log.py", log, "E", "playback: corrected 1")
         self.run_s(*go)
 
-    def test_quick_goal_needs_neither(self):
+    def test_quick_goal_needs_no_expectations(self):
         g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]
         self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", self.plan(g), "--header", "status=running")
 
 

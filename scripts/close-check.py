@@ -138,28 +138,42 @@ def claimed_tokens(lessons, slug):
 
 
 HUNT = re.compile(r"^E\d+ \S+ hunt (\d+|none)\b(.*)$", re.M)
+PUSH = re.compile(r"^E\d+ \S+ push(ed)?\b", re.M)
 
 
 def hunt_problems(log, head, quick):
-    """Code goals close only after a bug hunt came back clean (rules/loop.md → Bug hunt): the last
-    `E hunt <k>: … <r> real …` line has 0 real bugs, or the user accepted known issues after it.
+    """Code goals close only after a bug hunt came back clean (rules/loop.md → Bug hunt): each
+    round names its method (`/code-review …`); the last `E hunt <k>: … <r> real …` line has 0 real
+    bugs, or the user accepted known issues after it; and the last push comes after the last hunt,
+    so what was delivered was hunted.
     Quick goals need one light round; `E hunt none: <why>` when no code changed."""
     if head.get("type") not in ("build", "fix", "mixed"):
         return []
     hunts = list(HUNT.finditer(log))
     if not hunts:
         return ["no bug hunt logged — run rules/loop.md → Bug hunt and log each round as "
-                "`E hunt <k>: <n> found, <r> real, <x> fixed` (or `E hunt none: <why>` if no code changed)"]
+                "`E hunt <k>: <n> found, <r> real, <x> fixed — /code-review <level> …` "
+                "(or `E hunt none: <why>` if no code changed)"]
+    out = []
+    rounds = [h for h in hunts if h.group(1) != "none"]
+    unnamed = [h.group(1) for h in rounds if "/code-review" not in h.group(2)]
+    if unnamed:
+        out.append(f"hunt round {unnamed[0]} doesn't name /code-review — a test run is verify, not a hunt; run "
+                   "/code-review (rules/loop.md → Bug hunt) and log `E hunt <k>: … — /code-review <level> …`")
     last = hunts[-1]
+    pushes = list(PUSH.finditer(log))
+    if pushes and pushes[-1].start() < last.start() and last.group(1) != "none":
+        out.append("the last push came before the last hunt, so what was delivered wasn't hunted — the hunt "
+                   "goes before delivery; once it's clean, push again and log `E pushed …`")
     if quick or last.group(1) == "none":
-        return []
+        return out
     m = re.search(r"(\d+) real", last.group(2))
     if m is None:
-        return [f"hunt line has no real-bug count: {last.group(0)!r} — log `E hunt <k>: <n> found, <r> real, <x> fixed`"]
+        return out + [f"hunt line has no real-bug count: {last.group(0)!r} — log `E hunt <k>: <n> found, <r> real, <x> fixed`"]
     if int(m.group(1)) and not re.search(r"^D\d+ \S+ .*known issues.*tag: user", log[last.end():], re.M):
-        return [f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them and hunt "
-                "again until a round is clean, or the user accepts them (`D … known issues … (tag: user)`)"]
-    return []
+        out.append(f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them and hunt "
+                   "again until a round is clean, or the user accepts them (`D … known issues … (tag: user)`)")
+    return out
 
 
 def hunt_summary(log):

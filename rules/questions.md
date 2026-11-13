@@ -40,7 +40,7 @@ After the answers, and before the plan, show the user what they will get, so a w
 
 Corrections become `D … (tag: user)` lines and change the examples. Show the playback again only if a correction changed the outcome itself. Log `E playback: confirmed` or `E playback: corrected <n>`; plan approval is refused without it. The confirmed examples become the criteria (`rules/planning.md`) and are what the bug hunt checks against (`rules/loop.md`).
 
-Quick goals skip the checklist log and the playback; their one-line task is the example.
+Quick goals skip the checklist log; their playback is one line — "You'll get: …" plus what's not included — asked as one more option set in the same AskUserQuestion as the quick questions. A quick goal whose work is a page, a document or a review needs it most: that's where a wrong picture cost a full redo.
 
 ## Always asked
 

@@ -13,7 +13,8 @@ no goal — the hooks never read transcripts to guess ownership.
 - stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted);
                 blocks the stop (with every problem listed) if this session's goal:
                 is `running` at ≥70% of its budget ceiling (autonomous: raise it within 2× and go on;
-                otherwise ask: continue / cut scope / stop);
+                otherwise ask: continue / cut scope / stop); is a quick goal past 300k tokens or 30
+                active minutes with no `D … quick …` answer yet (offer a full goal);
                 is `running` without a final `wait`/`dispatch` log line; reached a milestone after
                 overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
@@ -168,14 +169,34 @@ def close_problems(plan):
     return "" if r.returncode == 0 else r.stdout.strip()
 
 
+QUICK_TOKENS, QUICK_MINUTES = 300_000, 30  # past either, a quick goal has outgrown quick mode
+
+
+def quick_outgrown(g, spent):
+    """A running quick goal past QUICK_TOKENS or QUICK_MINUTES active, not yet put to the user
+    (no `D … quick …` decision logged since it started) — offer to continue as a full goal."""
+    if g["mode"] != "quick" or g["status"] != "running":
+        return False
+    log = log_text(g["plan"])
+    if re.search(r"^D\d+ \S+ .*\bquick\b", log, re.M):
+        return False
+    if spent is not None and spent >= QUICK_TOKENS:
+        return True
+    cc = _load("mama_close_check", "close-check.py")
+    with open(g["plan"], encoding="utf-8") as f:
+        start = clock.start_of(f.read(3000))
+    total = cc.actual_minutes(log, start)
+    return total is not None and total - cc.waiting_minutes(log, start) >= QUICK_MINUTES
+
+
 def measure_budget(plan, transcript, closed=False):
-    """Write the measured spend into the plan header (mtime kept); return pct of ceiling or None.
-    A closed goal is measured once more (its final spend), then its cache is deleted, so later
-    turns skip it and no done goal keeps a cache on disk."""
+    """Write the measured spend into the plan header (mtime kept); return (pct of ceiling or None,
+    tokens or None). A closed goal is measured once more (its final spend), then its cache is
+    deleted, so later turns skip it and no done goal keeps a cache on disk."""
     sp = _load("mama_spend", "spend.py")
     cache = os.path.join(os.path.dirname(plan), sp.CACHE)
     if closed and not os.path.exists(cache):
-        return None
+        return None, None
     total = sp.measure(plan, transcript)
     if closed:
         try:
@@ -183,7 +204,7 @@ def measure_budget(plan, transcript, closed=False):
         except OSError:
             pass
     if total is None:
-        return None
+        return None, None
     _, _, size = sp.window(plan)
     with fileio.plan_lock(plan):
         st = os.stat(plan)
@@ -194,7 +215,7 @@ def measure_budget(plan, transcript, closed=False):
             fileio.write_atomic(plan, new)
             os.utime(plan, (st.st_atime, st.st_mtime))
     c = sp.ceiling(size)
-    return round(100 * total / c) if c else None
+    return (round(100 * total / c) if c else None), total
 
 
 def block_once(goal_dir, reason):
@@ -219,9 +240,18 @@ def stop(inp, g):
         return  # a goal closed earlier — don't nag about it in later, unrelated turns
     problems = []
     try:
-        pct = measure_budget(g["plan"], inp.get("transcript_path", ""), closed=g["status"] not in OPEN)
+        pct, spent = measure_budget(g["plan"], inp.get("transcript_path", ""), closed=g["status"] not in OPEN)
     except Exception:
-        pct = None
+        pct, spent = None, None
+    try:
+        if quick_outgrown(g, spent):
+            problems.append(
+                f"This quick goal has outgrown quick mode (past {QUICK_TOKENS // 1000}k tokens or {QUICK_MINUTES} "
+                "active minutes). Tell the user and ask: continue as a full goal (set mode checkpointed/autonomous "
+                "and a budget; the close check then asks for everything) or keep it quick — log the answer as "
+                "`D … quick … (tag: user)`.")
+    except Exception:
+        pass
     if g["status"] == "running" and pct is not None and pct >= 70:
         raise_to = ("raise the ceiling with headroom — measured spend + what's left estimated + 30% "
                     "(e.g. budget='~…k / L 1.5M') — so it doesn't come back every turn")

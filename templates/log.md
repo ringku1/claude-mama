@@ -8,8 +8,8 @@ Write every line with scripts/log.py (it adds the ID and real time, and a `-- YY
   F<n>  HH:MM finding | <claim> | <file:line | source>      (a case to handle: F<n> HH:MM case: <branch> — <handled how | unknown>)
   E<n>  HH:MM <type> <step?> <text>
 
-Event types: start, research: <n> findings, <m> cases, <k> open (or research none: <why>), expectations: <n> settled, <m> asked, playback: confirmed | corrected <n>, hunt <k>: <n> found, <r> real, <x> fixed (or hunt none: <why>), ask, answer, plan, approve, checkpoint, dispatch, pass, fail, fix, block, unblock,
-wait <what> (ending the turn on background work), learn <what|none>, commit <hash>, merge-base, conflict, push, pr <url>, trello, change, park, pause, waiting / resume (plan-set logs both on status changes), compaction (the PreCompact hook logs it), done.
+Event types: start, research: <n> findings, <m> cases, <k> open (or research none: <why>), expectations: <n> settled, <m> asked, playback: confirmed | corrected <n>, hunt <k>: <n> found, <r> real, <x> fixed — /code-review <level> … (or hunt none: <why>), ask, answer, plan, approve, checkpoint, dispatch, pass, fail, fix, block, unblock,
+wait <what> (ending the turn on background work), learn <what|none>, commit <hash>, merge-base, conflict, pushed <sha> to <branch or PR>, pr <url>, trello, change, park, pause, waiting / resume (plan-set logs both on status changes), compaction (the PreCompact hook logs it), done.
 Change example: E9 11:02 change goal: added sorting → +S7,S8; S4 obsolete; D3 revisit
 Decisions in force: grep '^D' and drop any superseded.
 -->

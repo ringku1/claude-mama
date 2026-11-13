@@ -102,7 +102,7 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 - **Research first.** Parallel read-only agents map the code the work touches, and every case it must handle, before asking anything.
 - **Questions that pin down what you expect.** Multiple choice, each with a recommended answer, covering a fixed checklist: the outcome, who uses it, edge cases, look and wording, data, speed, what must not change, and how it's tested. Then it shows you "here's exactly what you'll get" as concrete examples to confirm or correct before planning. It remembers your preferences (`~/.claude/mama/patterns.md`).
 - **A wide plan, run in parallel.** Steps own separate files, so many run at once. Time estimates come from the longest chain of dependent steps.
-- **Evidence, not claims.** A step is done when its check passes. After building, it hunts for bugs (a code review plus a check of every promised example and edge case), fixes what it can reproduce, and hunts again until a round comes back clean. The work closes only when a final check passes.
+- **Evidence, not claims.** A step is done when its check passes. After building, it hunts for bugs (a code review plus a check of every promised example and edge case), fixes what it can reproduce, and hunts again until a round comes back clean, all before anything is pushed. The work closes only when a final check passes.
 - **Measured cost and time.** It reads real token spend. At 70% of the budget it asks you, or, when running on its own, raises the budget up to 2× for work you already approved and tells you. Time estimates are scaled by how long your past goals really took.
 - **Safe by default.**
   - Each piece of work gets its own git branch and worktree.

@@ -35,7 +35,7 @@ Before work starts and again right before push: `git -C <main checkout> fetch or
 
 ## Push
 
-When every done criterion has evidence and the milestone check passed: run the full gate from `profile.md` once (under `scripts/lock.py <store>/.heavy.lock`), merge the latest base, push the branch (`git -C <main checkout> push -u origin <branch>`). Check the exit status, then log `push`. No remote: skip the push (`pr: none`, commit only) and say so.
+When every done criterion has evidence, the bug hunt is clean and the milestone check passed: run the full gate from `profile.md` once (under `scripts/lock.py <store>/.heavy.lock`), merge the latest base, push the branch (`git -C <main checkout> push -u origin <branch>`). Check the exit status, then log `E pushed <sha> to <branch or PR>`. No remote: skip the push (`pr: none`, commit only) and say so.
 
 ## Pull request (only per the user's choice)
 

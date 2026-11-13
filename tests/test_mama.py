@@ -295,7 +295,7 @@ class CloseCheck(Base):
         self.run_s("plan-set.py", p, "S1", "status=running")
         self.run_s("plan-set.py", p, "S1", "status=done")
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed — /code-review high")
         open(os.path.join(g, "overview.md"), "w").write("# Demo\n\n**Status:** Done\n\n## Final report\n\nok\n")
         open(os.path.join(self.store, "lessons.md"), "w").write(
             f"- {datetime.date.today()} demo build | steps 1 | tokens est S / ~0k\n")
@@ -345,7 +345,7 @@ class Lean(Base):
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
         open(os.path.join(g, "overview.md"), "w").write("# Tiny\n\n**Status:** Done · 1 of 1\n")
         self.assertIn("no bug hunt logged", self.run_s("close-check.py", g, ok=False))
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 1 found, 1 real, 1 fixed")  # one light round
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 1 found, 1 real, 1 fixed — /code-review low")  # one light round
         self.assertIn("OK", self.run_s("close-check.py", g))  # no lessons, profile or patterns needed
 
     def test_waiting_minutes(self):
@@ -472,8 +472,9 @@ class PlanAndOverview(Base):
         self.run_s("log.py", log, "E", "expectations: 9 settled, 0 asked")
         self.run_s("log.py", log, "E", "playback: confirmed")
         self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", "budget=S")
-        q = self.new_goal("tiny")  # quick goals skip research
+        q = self.new_goal("tiny")  # quick goals skip research and expectations
         self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
+        self.run_s("log.py", os.path.join(q, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
 
     def test_added_row_stamps_now_and_runs_guards(self):

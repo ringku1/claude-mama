@@ -14,6 +14,10 @@ Read `rules/agents.md`, then dispatch the **research lenses** as read-only agent
 | **Rules & proof** | The repo rules, skills and enforcement tests that apply; how this area is tested and what the tests need (DB env, fixtures). |
 | **Design** (UI work) | The design screen(s): regions, states, copy — what the input asks for that the design lacks, and the reverse. |
 
+## Ask what the work is for first
+
+A review, audit or "check X" goal whose wanted outcome isn't stated — a report only, or fixes too; which severities; which area — gets that one question before any lens runs, and the research is sized to the answer. Seven review lenses for findings the user then didn't want fixed cost a whole goal's budget.
+
 ## Size and record
 
 Size it to the goal — economy matters as much as coverage: a small goal gets one or two lenses (or none, in quick mode), a large one all of them, and a big area can be split across more agents by module. Merge the returns: findings → `F` lines (tag what you checked yourself `verified`), each case → an `F … case:` line, then one `E research: <n> findings, <m> cases, <k> open` line. Open cases feed the questions; the plan must cover every case. Plan a research step only for what is still open after this phase — never re-prove a finding.

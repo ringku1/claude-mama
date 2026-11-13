@@ -202,6 +202,22 @@ class Lean(HookBase):
         self.assertIn("ask the user: continue / cut scope / stop", reason)
         self.assertNotIn("tag: auto", reason)
 
+    def test_quick_goal_that_grew_offers_a_full_goal(self):
+        g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "playback: confirmed")
+        self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=running")
+        self.run_s("log.py", log, "E", "wait agent")
+        os.utime(os.path.join(g, "overview.md"))
+        self.spend(g, 100000)
+        self.assertEqual(self.hook("stop"), "")  # still small
+        self.spend(g, 250000)
+        self.assertIn("outgrown quick mode", json.loads(self.hook("stop"))["reason"])
+        self.run_s("log.py", log, "D", "keep it quick (tag: user)")
+        self.run_s("log.py", log, "E", "wait agent")
+        self.assertEqual(self.hook("stop"), "")  # answered
+
     def test_closed_goal_measured_once_then_cache_deleted(self):
         g = self.running_goal()
         cache = os.path.join(g, ".spend-cache.json")

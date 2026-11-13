@@ -32,7 +32,7 @@ class CloseBase(Base):
         self.run_s("plan-set.py", p, "S1", "status=running")
         self.run_s("plan-set.py", p, "S1", "status=done")
         self.run_s("plan-set.py", p, "C1", "evidence=go test ok")
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1: 2 found, 0 real, 0 fixed — /code-review high")
         open(os.path.join(g, "overview.md"), "w", encoding="utf-8").write(
             "# Demo\n\n**Status:** Done\n\n## Final report\n\nok\n")
         open(os.path.join(self.store, "lessons.md"), "w", encoding="utf-8").write(
@@ -44,22 +44,36 @@ class CloseBase(Base):
     def test_bug_hunt_must_end_clean(self):
         g = self.ready_goal()
         log = os.path.join(g, "log.md")
-        self.run_s("log.py", log, "E", "hunt 2: 4 found, 2 real, 2 fixed")
+        self.run_s("log.py", log, "E", "hunt 2: 4 found, 2 real, 2 fixed — /code-review high")
         out = self.close(g, ok=False)
         self.assertIn("the last bug hunt (round 2) found 2 real bug(s)", out)
-        self.run_s("log.py", log, "E", "hunt 3: 1 found, 0 real, 0 fixed")
+        self.run_s("log.py", log, "E", "hunt 3: 1 found, 0 real, 0 fixed — /code-review high")
         out = self.close(g, ok=True)
         self.assertIn("hunt rounds 3 (real bugs 2)", out)  # metrics draft
 
     def test_known_issues_accepted_by_the_user_close(self):
         g = self.ready_goal()
         log = os.path.join(g, "log.md")
-        self.run_s("log.py", log, "E", "hunt 4: 3 found, 1 real, 0 fixed")
+        self.run_s("log.py", log, "E", "hunt 4: 3 found, 1 real, 0 fixed — /code-review high")
         self.close(g, ok=False)
         self.run_s("log.py", log, "D", "deliver with 1 known issue listed in the report (tag: user)")
         self.assertIn("known issue", self.read(log))
         self.close(g, ok=False)  # "known issue" singular isn't the agreed marker
         self.run_s("log.py", log, "D", "deliver with known issues listed in the report (tag: user)")
+        self.close(g, ok=True)
+
+    def test_hunt_round_names_code_review(self):
+        g = self.ready_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 2: 0 found, 0 real, 0 fixed (full suites pass)")
+        self.assertIn("hunt round 2 doesn't name /code-review", self.close(g, ok=False))
+
+    def test_push_before_the_hunt_refused_until_pushed_again(self):
+        g = self.ready_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "pushed abc1234 to feat/x")
+        self.run_s("log.py", log, "E", "hunt 2: 1 found, 0 real, 0 fixed — /code-review high")
+        self.assertIn("the last push came before the last hunt", self.close(g, ok=False))
+        self.run_s("log.py", log, "E", "push: feat/x up to date after the clean hunt")
         self.close(g, ok=True)
 
     def test_hunt_none_and_research_goals(self):

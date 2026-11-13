@@ -43,11 +43,13 @@ Steps passing their own verify doesn't mean the whole works. When every build an
 
 **Triage every finding before fixing it**: reproduce it with a failing test or a command. Reproduced = real. Not reproducible, or out of scope = not real; log why in one line (`F … not a bug: …`) and park out-of-scope ones. A missing test for a promised behaviour is real: the fix is the test, plus a code fix if the test fails.
 
-**Fix**: every real bug becomes a fix step (`plan-set.py <plan> S+ kind=fix …`), test first, and runs through the normal cycle, in parallel by area. Then log the round: `E hunt <k>: <n> found, <r> real, <x> fixed`.
+**Fix**: every real bug becomes a fix step (`plan-set.py <plan> S+ kind=fix …`), test first, and runs through the normal cycle, in parallel by area. Then log the round when it ends: `E hunt <k>: <n> found, <r> real, <x> fixed — /code-review <level> + expectations check`. A test-suite run is verify, not a hunt; the close check refuses a round that doesn't name `/code-review`.
 
 **Stop rule**: a round with **0 real** bugs ends the hunt. While rounds keep finding real bugs, go again. After 4 rounds that still find some, stop: set status `waiting` and ask: hunt again / deliver with the known issues listed in the report / stop. "Deliver" is logged as `D deliver with known issues … (tag: user)`. The close check refuses a code goal whose last hunt wasn't clean, unless that decision follows it.
 
-**Quick goals**: one light round, `/code-review low` on the change with no expectations agent. Fix what it confirms and don't repeat. **No code changed** (research, docs only): log `E hunt none: <why>`.
+**Before the push**: the hunt runs on what will be delivered, so it comes before the push; the close check refuses a goal whose last push precedes its last hunt (push again once the hunt is clean, and log it).
+
+**Quick goals**: one light round, `/code-review low` on the change with no expectations agent, before the push. Fix what it confirms and don't repeat. **No code changed** (research, docs only): log `E hunt none: <why>`.
 
 ## Milestones and checkpoints
 
