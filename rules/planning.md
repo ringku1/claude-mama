@@ -25,6 +25,7 @@ Check, fix, then present:
 - [ ] Every done criterion maps to ≥1 step
 - [ ] Every confirmed playback example (`rules/questions.md`) is a criterion or part of one, proven by a test or a check the user can repeat
 - [ ] Code goals end with one `hunt` step (deps: every build and fix step; est 10–15m; the release step depends on it) — `rules/loop.md` → Bug hunt
+- [ ] The migration and every step that touches the database follow the agreed design (`D … db:` lines) — nothing more, nothing different
 - [ ] Every `case:` from research is covered — by a criterion or a step's verify, a logged decision, or a parked line
 - [ ] No dependency cycles; no ownership overlap between parallel steps
 - [ ] Every step has a verify that actually exercises its criterion
@@ -42,7 +43,7 @@ Record every decision as a `D` line in `log.md`: question, choice, why, evidence
 
 - **Evidence tags**: `verified` (read the code / ran it), `inferred`, `assumed`, `user`. Prefer verified; never build on unconfirmed assumed.
 - **Precedent**: find how this repo already solved the same kind of problem and follow it. Deviating needs a stated reason.
-- **Reversibility**: code on an unmerged branch is reversible — including the behaviour of new functions. Decide, log, flag for review in overview. One-way = things that reach beyond this branch or are costly to undo: database schema/migrations, contracts other code or teams already consume, new dependencies, data deletion, anything outward-facing. Those → ask. "New dependency" includes plugins and companions of one the user already approved (e.g. `remark-gfm` next to an approved `react-markdown`) — ask in one line before installing; don't fold it into the earlier approval.
+- **Reversibility**: code on an unmerged branch is reversible — including the behaviour of new functions. Decide, log, flag for review in overview. One-way = things that reach beyond this branch or are costly to undo: database schema/migrations (any change to the agreed design goes back to the user, `rules/questions.md` → Database changes), contracts other code or teams already consume, new dependencies, data deletion, anything outward-facing. Those → ask. "New dependency" includes plugins and companions of one the user already approved (e.g. `remark-gfm` next to an approved `react-markdown`) — ask in one line before installing; don't fold it into the earlier approval.
 - **Options**: for non-trivial choices weigh 2-3 options against the goal's criteria (risk, reversibility, fit with repo rules, effort) and pick one. No exhaustive surveys.
 - **Second opinion**: only for a decision that shapes the whole plan — one agent argues against your recommendation. Rare; it costs tokens.
 - **Consistency**: check decisions in force (`grep '^D' log.md`) before deciding. A new decision that conflicts with an old one must explicitly supersede it (`Dn supersedes Dm`).

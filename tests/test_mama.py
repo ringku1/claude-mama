@@ -470,6 +470,7 @@ class PlanAndOverview(Base):
         self.assertIn("no research recorded", out)
         self.run_s("log.py", log, "E", "research none: one-line config change")
         self.run_s("log.py", log, "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", log, "E", "db: none — test")
         self.run_s("log.py", log, "E", "playback: confirmed")
         self.run_s("plan-set.py", p, "--header", "status=running", "mode=autonomous", "budget=S")
         q = self.new_goal("tiny")  # quick goals skip research and expectations
@@ -593,6 +594,7 @@ class Portable(Base):
         g = self.run_s("new-goal.py", os.path.join(link, ".claude", "mama"), "demo", "build", "t").splitlines()[0]
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test")
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "db: none — test")
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", os.path.join(g, "plan.md"), "S+", "title=a", "verify=v")
         self.run_s("plan-set.py", os.path.join(g, "plan.md"), "--header", "status=running", "mode=autonomous", "budget=S")

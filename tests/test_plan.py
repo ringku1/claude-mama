@@ -23,6 +23,7 @@ class PlanBase(Base):
         self.p = self.plan(self.g)
         self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "research none: test")
         self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "db: none — test")
         self.run_s("log.py", os.path.join(self.g, "log.md"), "E", "playback: confirmed")
         self.run_s("plan-set.py", self.p, "S+", "title=a", "verify=v")
 
@@ -169,9 +170,31 @@ class Expectations(Base):
         go = ("plan-set.py", p, "--header", "status=approved", "mode=autonomous", "budget=S")
         self.assertIn("expectations not covered", self.run_s(*go, ok=False))
         self.run_s("log.py", log, "E", "expectations: 7 settled, 2 asked")
+        self.assertIn("no database decision", self.run_s(*go, ok=False))
+        self.run_s("log.py", log, "E", "db: agreed 2 changes")
         self.assertIn("no playback", self.run_s(*go, ok=False))
         self.run_s("log.py", log, "E", "playback: corrected 1")
         self.run_s(*go)
+
+    def test_playback_must_follow_the_database_decision(self):
+        g = self.new_goal()
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S+", "title=a", "verify=v")
+        for line in ("research none: test", "expectations: 9 settled, 0 asked", "db: agreed 1 changes",
+                     "playback: confirmed", "db: agreed 2 changes"):
+            self.run_s("log.py", log, "E", line)
+        go = ("plan-set.py", p, "--header", "status=approved", "mode=autonomous", "budget=S")
+        self.assertIn("predates the database decision", self.run_s(*go, ok=False))
+        self.run_s("log.py", log, "E", "playback: confirmed")
+        self.run_s(*go)
+
+    def test_research_goal_needs_no_database_decision(self):
+        g = self.run_s("new-goal.py", self.store, "r", "research", "t").splitlines()[0]
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S+", "title=a", "verify=v")
+        for line in ("research none: test", "expectations: 9 settled, 0 asked", "playback: confirmed"):
+            self.run_s("log.py", log, "E", line)
+        self.run_s("plan-set.py", p, "--header", "status=approved", "mode=autonomous", "budget=S")
 
     def test_quick_goal_needs_no_expectations(self):
         g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]

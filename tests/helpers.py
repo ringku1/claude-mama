@@ -72,6 +72,7 @@ class Base(unittest.TestCase):
         p = self.plan(goal)
         self.run_s("log.py", os.path.join(goal, "log.md"), "E", "research: 2 findings, 1 cases, 0 open")
         self.run_s("log.py", os.path.join(goal, "log.md"), "E", "expectations: 9 settled, 0 asked")
+        self.run_s("log.py", os.path.join(goal, "log.md"), "E", "db: none — test")
         self.run_s("log.py", os.path.join(goal, "log.md"), "E", "playback: confirmed")
         s = self.read(p)
         s = re.sub(r"^\| C1 .*$", "| C1  | it works | S1 | — |", s, flags=re.M)

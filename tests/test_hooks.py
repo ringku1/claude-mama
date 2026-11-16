@@ -35,6 +35,7 @@ class HookBase(Base):
             g = self.new_goal(slug, sid=sid)
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "research none: test", sid=sid)
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "expectations: 9 settled, 0 asked", sid=sid)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "db: none — test", sid=sid)
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "playback: confirmed", sid=sid)
         self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v", sid=sid)
         self.run_s("plan-set.py", self.plan(g), "--header", "status=running", "mode=autonomous", "budget=M", sid=sid)
@@ -205,6 +206,7 @@ class Lean(HookBase):
     def test_quick_goal_that_grew_offers_a_full_goal(self):
         g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]
         log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "db: none — test")
         self.run_s("log.py", log, "E", "playback: confirmed")
         self.run_s("plan-set.py", self.plan(g), "S+", "title=a", "verify=v")
         self.run_s("plan-set.py", self.plan(g), "--header", "status=running")

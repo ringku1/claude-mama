@@ -12,6 +12,16 @@ Questions turn a vague goal into specific context, so the result matches what th
 - **Cover the case map**: walk every `case:` line. A case the code, precedent, the input or patterns settles → decide, log it (`inferred`), and list the product-facing ones in the overview's Key decisions. A case left open whose answer changes the work → a question. Several small open cases in one area → one question with the recommended handling for all of them.
 - **Pre-mortem**: imagine the goal failed. The likely reasons are your most valuable questions.
 
+## Database changes — settle these first
+
+The schema shapes everything after it — the API, the screens, the tests, the migration — and it is the hardest thing to change once code depends on it. So when research found any database change (`F … db:`), discuss the whole design with the user **before** the other questions and before any plan:
+
+1. **Propose it whole**, in one AskUserQuestion with a preview: every table and column (type, null, default), keys and foreign keys (on delete), indexes, constraints and enums; what happens to existing rows (default, backfill, data moved or deleted); the migration (one file, per the repo's rules and naming; reversible or not; locks on large tables); and what reads or writes it (queries, API shape, caches). Follow the repo's precedent and say where it comes from.
+2. **Suggest, don't just ask**: recommend one design, and offer the real alternatives (e.g. a column vs a new table, soft vs hard delete, an enum vs a lookup table), each with its one-line trade-off. Options: the recommended design (Recommended) · each alternative · change something.
+3. **Discuss until agreed.** The user's questions and corrections go into a revised proposal, shown again, until they approve it.
+
+Each agreed part → a `D … db: <decision> (tag: user)` line. Then log `E db: agreed <n> changes`; with no database change, `E db: none — <why>`. Plan approval of a build, fix or mixed goal is refused without it, and the playback must come after it. The agreed design is the one the plan builds: a different schema later, or a database change found mid-run, goes back to the user the same way (`D … db:` again) before any step uses it.
+
 ## Expectations — what "done right" means to the user
 
 The work is judged by what the user expected, not by what the plan said. Before asking, walk this checklist. Settle each point from the input, the code, precedent or patterns, citing the source and logging a `D … (tag: inferred)`. Otherwise ask it. A point that can't apply gets one word in the log ("n/a: no UI"). Don't fold points into a vague "anything else?".
@@ -20,7 +30,7 @@ The work is judged by what the user expected, not by what the plan said. Before 
 2. **People & access** — who uses it, which roles or permissions, what others must not see or do.
 3. **Behaviour & edge cases** — the open `case:` lines from research: empty, limits, errors, concurrency, undo, old data.
 4. **Look & copy** — the design or screen to follow, wording, states (loading, empty, error), and what must look exactly like an existing screen.
-5. **Data & interfaces** — shapes, names, migrations, API contract, compatibility with existing clients.
+5. **Data & interfaces** — the database design agreed above ("Database changes"), plus shapes, names, API contract, compatibility with existing clients.
 6. **Speed & scale** — data sizes and response times that must hold; "no worse than today" counts.
 7. **Must not change** — existing behaviour, screens, APIs or other teams' work that must stay as is.
 8. **Proof** — which tests or checks prove it, and what the user will try by hand.
@@ -40,7 +50,7 @@ After the answers, and before the plan, show the user what they will get, so a w
 
 Corrections become `D … (tag: user)` lines and change the examples. Show the playback again only if a correction changed the outcome itself. Log `E playback: confirmed` or `E playback: corrected <n>`; plan approval is refused without it. The confirmed examples become the criteria (`rules/planning.md`) and are what the bug hunt checks against (`rules/loop.md`).
 
-Quick goals skip the checklist log; their playback is one line — "You'll get: …" plus what's not included — asked as one more option set in the same AskUserQuestion as the quick questions. A quick goal whose work is a page, a document or a review needs it most: that's where a wrong picture cost a full redo.
+Quick goals skip the checklist log (a quick goal that needs a database change isn't quick: offer to run it as a full goal); their playback is one line — "You'll get: …" plus what's not included — asked as one more option set in the same AskUserQuestion as the quick questions. A quick goal whose work is a page, a document or a review needs it most: that's where a wrong picture cost a full redo.
 
 ## Always asked
 

@@ -20,9 +20,10 @@ Goals, tests and wishes change. Handle each change so finished work isn't lost a
 2. Steps: no longer needed → `obsolete` (never delete rows); new work → new steps; done work that still fits → keep.
 3. Decisions: re-check each one that depended on the old goal → mark `active` / `revisit` / `obsolete`.
 4. Done criteria: update; criteria removed keep their row with status note.
-5. Log one `change` event: what changed and the impact (`+S9,S10; S4 obsolete; D3 revisit`).
-6. Update the Goal section of overview (plain, current-state wording) and "What changed along the way".
-7. Scope moved materially (new area, much bigger) → re-validate and show the plan table again for approval. Small → continue and tell the user in one line.
+5. A change that adds or alters a database change → discuss it first (`rules/questions.md` → Database changes) and log the new `D … db:` lines before re-planning.
+6. Log one `change` event: what changed and the impact (`+S9,S10; S4 obsolete; D3 revisit`).
+7. Update the Goal section of overview (plain, current-state wording) and "What changed along the way".
+8. Scope moved materially (new area, much bigger) → re-validate and show the plan table again for approval. Small → continue and tell the user in one line.
 
 **New behaviour vs. reopened step**: a change that adds or alters behaviour → a new step (history stays readable, done work stays done). A change only to how a step is proven → reopen that step (below).
 
