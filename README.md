@@ -31,7 +31,7 @@ claude plugin marketplace add ringku1/claude-mama
 claude plugin install mama@claude-mama
 ```
 
-To switch from one way to the other, remove the first one before installing the second (see "Update or remove").
+To switch from one way to the other, remove the first one before installing the second (see "Remove").
 
 **2. Restart Claude Code.**
 
@@ -62,14 +62,54 @@ Don't have Claude Code yet? Get it at [code.claude.com](https://code.claude.com)
 
 Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 
-## Update or remove
+## Update
 
-Your notes in each project are kept either way.
+Your notes in each project are kept. Update the same way you installed, then **restart Claude Code**.
 
-| | One line | Plugin |
-| --- | --- | --- |
-| **Update** | paste the same install line again | `claude plugin marketplace update claude-mama`, then `claude plugin update mama@claude-mama`, then restart Claude Code (new releases raise the version in `.claude-plugin/plugin.json`) |
-| **Remove** | macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh \| bash -s -- --uninstall`<br>Windows: `$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 \| iex` | `claude plugin uninstall mama@claude-mama` |
+**One-line install:** run the install line again.
+
+macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
+```
+
+**Plugin:**
+
+```bash
+claude plugin marketplace update claude-mama
+claude plugin update mama@claude-mama
+```
+
+## Remove
+
+Your notes in each project are kept.
+
+**One-line install:**
+
+macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ringku1/claude-mama/main/install.sh | bash -s -- --uninstall
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:MAMA_UNINSTALL=1; irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
+```
+
+**Plugin:**
+
+```bash
+claude plugin uninstall mama@claude-mama
+```
 
 ## If something goes wrong
 

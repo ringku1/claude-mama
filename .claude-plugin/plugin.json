@@ -1,6 +1,6 @@
 {
   "name": "mama",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Goal-based work loop: research, one batch of questions, a plan, then dev → test → fix with parallel agents until every done-criterion has evidence.",
   "author": { "name": "ringku1", "url": "https://github.com/ringku1" },
   "homepage": "https://github.com/ringku1/claude-mama",
