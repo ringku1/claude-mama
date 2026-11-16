@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: change-updates-plan
+expected_outcome: |
+  With an approved, paused checkpointed goal (add-verbose-flag: S1 done and committed in its
+  worktree, S2 and S3 todo), /mama change add-verbose-flag also add a --quiet flag that hides
+  normal output adds the --quiet work as a new step through plan-set.py S+, adds or updates a
+  done criterion for it, logs a `change` event through log.py, and regenerates overview.md;
+  plan.md and log.md are never edited directly, and finished work stays done.
+context:
+  scaffold_script: place-files.sh

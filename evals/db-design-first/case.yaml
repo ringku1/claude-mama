@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: db-design-first
+expected_outcome: |
+  In a tiny SQLite app (migrations/001_init.sql creates a singular `user` table, app.py
+  prints a profile, test_app.py on main), a new full goal is created with new-goal.py,
+  research is done read-only and logged with the database change it needs, and the first
+  question after research is the database design: one proposal naming the table and column
+  (type, null/default), what happens to existing rows and the migration file, with a
+  recommended option and at least one alternative. It comes before the base-branch, PR and
+  expectation questions and before any plan. No source file, branch or worktree is changed.
+context:
+  scaffold_script: place-files.sh

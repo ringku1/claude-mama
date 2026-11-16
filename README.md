@@ -159,7 +159,7 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 
 - **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
 - **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it; the version before mama's last change is kept as `patterns.md.bak`), and `activity.log`, which records which session wrote to which piece of work. It decides which work the hooks treat as a session's own, and cost counts the sessions recorded there (plus a transcript scan only for work started before `activity.log` existed).
-- **The skill:** `SKILL.md` (the flow), `rules/`, `scripts/`, `hooks/`, `templates/`.
+- **The skill:** `SKILL.md` (the flow, loaded on every `/mama`), `rules/` (read at the step that needs them), `scripts/`, `hooks/`, `templates/`.
 
 ### Settings you may want to change
 
@@ -174,6 +174,8 @@ claude.ai chat and Claude Code on the web: mama needs your personal skills folde
 ### Development
 
 Run all the tests with `python3 tests/test_mama.py`. They run every script and hook in a throwaway home folder and never touch your real `~/.claude`. CI runs them on Linux (Python 3.8 and current), macOS and Windows, and also tests the one-line installers there.
+
+End-to-end evals in `evals/` run real `/mama` sessions in throwaway repos and grade what happened (the questions asked, the files written, what stayed unchanged). Run them with `claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --no-publish`. On a Linux host that restricts user namespaces (recent Ubuntu), the runner's nested sandbox stops every shell command inside the evals, so the cases that run scripts fail there; run them on another machine.
 
 Issues and pull requests are welcome. Keep changes small and add a test for any script or hook change. `SKILL.md` and `rules/` are read by the model on every run, so keep them short and current.
 

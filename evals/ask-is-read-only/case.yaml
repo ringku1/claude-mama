@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: ask-is-read-only
+expected_outcome: |
+  With one closed goal in the store (delete-user: status done, its worktree kept on
+  feat/delete-user with one commit, and log.md deciding soft delete via user.deleted_at
+  because support must be able to restore a user deleted by mistake), /mama ask why did you
+  pick a soft delete? answers about delete-user from the logged decision and its reason, and
+  changes no goal file, source file or git state.
+context:
+  scaffold_script: place-files.sh

@@ -14,6 +14,10 @@ Goals, tests and wishes change. Handle each change so finished work isn't lost a
 7. **Record:** `log.py E "change: <what> — +S9,S10; S4 obsolete; D3 revisit"`, plus a `D` line (`tag: user`) per user choice, then `learn.py` or `E learn none`.
 8. **Resume:** regenerate overview.md (Goal section current, "What changed along the way" gets one line), restore the status the goal had (running → continue the loop at the next ready step; waiting/paused → stay).
 
+## Fix goal (`/mama fix`)
+
+Fix what a goal found (a test run, review or research) as a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files.
+
 ## Goal change
 
 1. Diff old goal vs new: what's added, removed, altered.

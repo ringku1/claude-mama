@@ -14,7 +14,7 @@ Questions turn a vague goal into specific context, so the result matches what th
 
 ## Database changes — settle these first
 
-The schema shapes everything after it — the API, the screens, the tests, the migration — and it is the hardest thing to change once code depends on it. So when research found any database change (`F … db:`), discuss the whole design with the user **before** the other questions and before any plan:
+The schema shapes everything after it — the API, the screens, the tests, the migration — and it is the hardest thing to change once code depends on it. So when research found any database change (`F … db:`), discuss the whole design with the user **before** the other questions and before any plan — in a message of its own, with no other question in it: the other answers depend on the design, so they wait until it's agreed.
 
 1. **Propose it whole**, in one AskUserQuestion with a preview: every table and column (type, null, default), keys and foreign keys (on delete), indexes, constraints and enums; what happens to existing rows (default, backfill, data moved or deleted); the migration (one file, per the repo's rules and naming; reversible or not; locks on large tables); and what reads or writes it (queries, API shape, caches). Follow the repo's precedent and say where it comes from.
 2. **Suggest, don't just ask**: recommend one design, and offer the real alternatives (e.g. a column vs a new table, soft vs hard delete, an enum vs a lookup table), each with its one-line trade-off. Options: the recommended design (Recommended) · each alternative · change something.
