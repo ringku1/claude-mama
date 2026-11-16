@@ -34,7 +34,11 @@ class Manifests(unittest.TestCase):
     def test_plugin_and_marketplace_agree(self):
         plugin, market = load(PLUGIN), load(MARKET)
         self.assertEqual(plugin["name"], "mama")
-        self.assertTrue(plugin.get("version") and plugin.get("description"))
+        self.assertTrue(plugin.get("description"))
+        # no version anywhere: plugin users then follow the latest commit, so no release can be
+        # stranded behind a version nobody raised
+        self.assertNotIn("version", plugin)
+        self.assertFalse(any("version" in p for p in market["plugins"]))
         self.assertTrue(market["name"] and market["owner"]["name"])
         self.assertNotIn(market["name"], ("claude-plugins-official", "anthropic-marketplace"))
         [entry] = market["plugins"]

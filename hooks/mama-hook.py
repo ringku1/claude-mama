@@ -9,6 +9,8 @@ no goal — the hooks never read transcripts to guess ownership.
 
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
+- every mode:   at most once a day starts scripts/self-update.py in the background (git installs;
+                MAMA_AUTO_UPDATE=0 turns it off).
 - sessionstart: (matcher "compact") injects the open goals so the session can re-enter its own.
 - stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted, also
                 for the session's earlier closed goals);
@@ -35,6 +37,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 OPEN = {"planning", "approved", "running", "waiting", "paused", "blocked"}
 ERRORS = os.path.expanduser("~/.claude/mama/hook-errors.log")
+UPDATE_STAMP = os.path.expanduser("~/.claude/mama/.update-check")
+UPDATE_EVERY = 24 * 3600
 
 try:
     sys.path.insert(0, SCRIPTS)
@@ -337,9 +341,35 @@ def stop(inp, g):
             pass
 
 
+def maybe_self_update():
+    """At most once a day, start scripts/self-update.py detached (it checks everything else and
+    updates a git install). Off with MAMA_AUTO_UPDATE=0; plugin installs update through Claude Code."""
+    if os.environ.get("MAMA_AUTO_UPDATE", "1") == "0" or os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return
+    try:
+        if datetime.datetime.now().timestamp() - os.path.getmtime(UPDATE_STAMP) < UPDATE_EVERY:
+            return
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(UPDATE_STAMP), exist_ok=True)
+    with open(UPDATE_STAMP, "w", encoding="utf-8"):
+        pass
+    if os.name == "nt":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        detach = {"creationflags": flags}
+    else:
+        detach = {"start_new_session": True}
+    subprocess.Popen([sys.executable, os.path.join(SCRIPTS, "self-update.py")], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **detach)
+
+
 def main(mode):
     if IMPORT_ERROR:
         raise IMPORT_ERROR
+    try:
+        maybe_self_update()
+    except Exception:
+        pass  # updating is a convenience; the hook's own job comes first
     try:
         inp = json.load(sys.stdin)
     except ValueError:

@@ -43,6 +43,7 @@ class Base(unittest.TestCase):
         e = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CODE_SESSION")}
         e["HOME"] = self.home
         e["USERPROFILE"] = self.home  # Windows: expanduser reads USERPROFILE, not HOME
+        e["MAMA_AUTO_UPDATE"] = "0"  # tests never start the background updater (tests/test_update.py turns it on)
         if sid:
             e["CLAUDE_CODE_SESSION_ID"] = sid
         return e

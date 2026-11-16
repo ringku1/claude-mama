@@ -64,9 +64,11 @@ Your progress page is `.claude/mama/<name>/overview.md` inside your project.
 
 ## Update
 
-Your notes in each project are kept. Update the same way you installed, then **restart Claude Code**.
+Your notes in each project are kept.
 
-**One-line install:** run the install line again.
+**One-line install: automatic.** Once a day, in the background, mama checks for a new version and updates itself; the next session uses it. It leaves the folder alone if you changed files in it. To turn it off, add `"env": { "MAMA_AUTO_UPDATE": "0" }` to `~/.claude/settings.json`.
+
+To update right away, run the install line again, then restart Claude Code:
 
 macOS or Linux:
 
@@ -80,7 +82,9 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/ringku1/claude-mama/main/install.ps1 | iex
 ```
 
-**Plugin:**
+**Plugin: turn on auto-update once.** In Claude Code, type `/plugin`, open **Marketplaces**, pick **claude-mama** and choose **Enable auto-update**. Claude Code then brings in each new version when it starts (it's off by default for marketplaces outside Anthropic's own).
+
+To update right away, then restart Claude Code:
 
 ```bash
 claude plugin marketplace update claude-mama
@@ -134,6 +138,7 @@ claude plugin uninstall mama@claude-mama
    - **Windows only:** Git for Windows, which also gives Claude Code the Bash tool it needs there.
 2. Downloads mama to `~/.claude/skills/mama` (`%USERPROFILE%\.claude\skills\mama` on Windows; `$CLAUDE_CONFIG_DIR/skills/mama` when that is set). If something else is already there, it's moved aside, not deleted.
 3. Registers three Claude Code hooks in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). It keeps your other settings; the first install saves your original file as `settings.json.bak`. The hooks call Python by its full path, so they work in any shell.
+4. From then on the hooks keep it current: at most once a day they start a quiet background update (`git` fast-forward of `main`, then the installer again so the hooks match the release). It skips a folder with local changes or on another branch, and `MAMA_AUTO_UPDATE=0` turns it off.
 
 It stops with nothing changed if `settings.json` isn't valid JSON, and refuses to add hooks when the mama plugin is enabled. When an update fails, the message says why (local changes, no connection, and so on).
 
