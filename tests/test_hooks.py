@@ -189,7 +189,7 @@ class Lean(HookBase):
         self.spend(g, 800000)
         reason = json.loads(self.hook("stop"))["reason"]
         self.assertIn("Budget at 80%", reason)
-        self.assertIn("within 2× the approved one", reason)
+        self.assertIn("within 2× the approved M", reason)
         self.assertIn("tag: auto", reason)
 
     def test_budget_at_70_checkpointed_asks(self):
@@ -217,6 +217,23 @@ class Lean(HookBase):
         self.run_s("log.py", log, "D", "keep it quick (tag: user)")
         self.run_s("log.py", log, "E", "wait agent")
         self.assertEqual(self.hook("stop"), "")  # answered
+
+    def test_hunt_not_converging_asks_to_simplify(self):
+        g = self.running_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "hunt 1: 9 found, 6 real, 0 fixed yet, 2 minor — /code-review high")
+        self.run_s("log.py", log, "E", "hunt 1: 9 found, 6 real, 6 fixed, 2 minor — /code-review high")  # same round again
+        self.run_s("log.py", log, "E", "fixes for round 1 verified")
+        self.run_s("log.py", log, "E", "wait hunt 2")
+        self.assertEqual(self.hook("stop"), "")
+        self.run_s("log.py", log, "E", "hunt 2: 8 found, 6 real, 0 fixed yet — /code-review high")
+        self.run_s("log.py", log, "E", "wait fixes")
+        self.assertIn("isn't converging (real bugs: 6 → 6)", json.loads(self.hook("stop"))["reason"])
+        self.run_s("log.py", log, "D", "simplify the cache part (tag: user)")
+        self.run_s("log.py", log, "E", "learn none")
+        self.run_s("log.py", log, "E", "wait simplify")
+        os.utime(os.path.join(g, "overview.md"))
+        self.assertEqual(self.hook("stop"), "")
 
     def test_closed_goal_measured_once_then_cache_deleted(self):
         g = self.running_goal()

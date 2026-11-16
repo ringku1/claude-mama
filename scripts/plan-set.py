@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
 import fileio  # noqa: E402
 import overview  # noqa: E402
+import spend  # noqa: E402
 from estimate import expand, split_row, summary  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
@@ -248,6 +249,7 @@ def guard_header(path, lines, updates):
     if first_go and mode != "quick" and not SIZE.fullmatch(budget.split("/")[-1].strip()):
         sys.exit("REFUSED: no budget ceiling. Set the size with the approval: budget=S, budget=M "
                  "or budget='L <n>k|M' (e.g. 'L 800k', 'L 1.5M').")
+    guard_budget(path, lines, updates, log, first_go or prev in ("planning", ""))
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
         subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)
@@ -259,6 +261,46 @@ def guard_header(path, lines, updates):
         log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""
         if trello not in ("", "none", "—") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
             print("REMINDER: Trello card linked — post the start comment now (what this goal will change), log `trello`.")
+
+
+def size_of(budget):
+    size = budget.split("/")[-1].strip()
+    return size if SIZE.fullmatch(size) else None
+
+
+def guard_budget(path, lines, updates, log, approving):
+    """Keep the size the user approved in `approved:`, set at plan approval. Later a raise past 2×
+    of it needs a user decision on the budget (`D … budget … (tag: user)`) logged since the last
+    budget change, which then becomes the new approved size; a change is logged `E budget set …`."""
+    old, new = size_of(header_value(lines, "budget")), size_of(updates.get("budget", ""))
+    approved = size_of(header_value(lines, "approved")) or None
+    if approving:
+        if (new or old) and (new or old) != approved:
+            updates["approved"] = new or old
+            log_budget(path, f"budget set {old or '—'} → {new or old} (approved {new or old}, at plan approval)")
+        return
+    if not new or new == old:
+        return
+    anchor = approved or old
+    sets = [m.end() for m in re.finditer(r"^E\d+ \S+ budget set\b.*$", log, re.M)]
+    since = log[sets[-1]:] if sets else log
+    user_ok = re.search(r"^D\d+ \S+ .*budget.*tag: user", since, re.M)
+    if user_ok or not anchor:
+        updates["approved"] = new
+    elif spend.ceiling(new) > 2 * spend.ceiling(anchor):
+        sys.exit(f"REFUSED: budget {new} is past 2× the approved {anchor}. Stop dispatching, set status waiting and "
+                 "ask the user: continue (with the new size) / cut scope / stop — log the answer as "
+                 "`D budget … (tag: user)`, then set the budget.")
+    else:
+        updates["approved"] = anchor
+    log_budget(path, f"budget set {old or '—'} → {new} (approved {updates['approved']})")
+
+
+def log_budget(path, text):
+    logp = os.path.join(os.path.dirname(os.path.abspath(path)), "log.md")
+    if os.path.exists(logp):
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py"), logp, "E",
+                        text], stdout=subprocess.DEVNULL)
 
 
 def budget_value(cur, new):
@@ -283,7 +325,11 @@ def set_header(lines, updates):
                 print(lines[i])
                 break
         else:
-            sys.exit(f"header field {k!r} not found")
+            budget_line = next((i for i in range(end) if "budget: " in lines[i]), None)
+            if k != "approved" or budget_line is None:  # plans from before `approved:` get it added
+                sys.exit(f"header field {k!r} not found")
+            lines[budget_line] += f" | approved: {v}"
+            print(lines[budget_line])
 
 
 def progress(lines):

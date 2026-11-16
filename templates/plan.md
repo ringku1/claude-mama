@@ -1,7 +1,7 @@
 <!-- plan.md — machine file, source of truth. Only the orchestrator writes it, only with scripts/plan-set.py: rows (S3 / C1 / S+ / C+), header (--header), Parked (P+). Unknown-yet values: —. Delete this comment. -->
 
 goal: <slug> | type: <build|fix|research|mixed> | status: <planning|approved|running|waiting|paused|blocked|done|aborted> | mode: <checkpointed|autonomous|quick|—>
-progress: <done>/<live> (<pct>%) | blocked: <n> | budget: ~<spent>k / <S|M|L nk|L nM>
+progress: <done>/<live> (<pct>%) | blocked: <n> | budget: ~<spent>k / <S|M|L nk|L nM> | approved: <size the user approved>
 base: <branch|n/a> | branch: <branch|n/a> | worktree: <abs path|n/a> | pr: <ask-at-end|auto|none|declined|PR url> | deliverable commit: <yes|no|n/a> | trello: <url|none>
 started: <YYYY-MM-DD HH:MM>
 

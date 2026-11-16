@@ -15,7 +15,9 @@ no goal — the hooks never read transcripts to guess ownership.
                 blocks the stop (with every problem listed) if this session's goal:
                 is `running` at ≥70% of its budget ceiling (autonomous: raise it within 2× and go on;
                 otherwise ask: continue / cut scope / stop); is a quick goal past 300k tokens or 30
-                active minutes with no `D … quick …` answer yet (offer a full goal);
+                active minutes with no `D … quick …` answer yet (offer a full goal); has a bug-hunt
+                round with no fewer real bugs than the one before and no user decision since (ask:
+                simplify / fix again / deliver with known issues);
                 is `running` without a final `wait`/`dispatch` log line; reached a milestone after
                 overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
@@ -81,6 +83,7 @@ def read_goal(goal_dir):
         "mode": fields.get("mode", "—").strip(),
         "progress": fields.get("progress", "?").strip(),
         "worktree": fields.get("worktree", "n/a").strip(),
+        "approved": fields.get("approved", "—").strip(),
         "plan": plan,
     }
 
@@ -190,6 +193,21 @@ def quick_outgrown(g, spent):
     return total is not None and total - cc.waiting_minutes(log, start) >= QUICK_MINUTES
 
 
+def hunt_stalled(plan):
+    """(previous, last) real-bug counts when the last bug-hunt round found 2+ real bugs and no fewer
+    than the round before it, with no user decision since — fixes are making new bugs. Else None."""
+    log = log_text(plan)
+    by_round = {k: real for k, real in _load("mama_close_check", "close-check.py").hunt_rounds(log)
+                if real is not None}  # a round logged twice (found, then fixed) counts once
+    rounds = sorted(by_round.items())
+    if len(rounds) < 2 or rounds[-1][1] < 2 or rounds[-1][1] < rounds[-2][1]:  # 1 → 1 isn't worth a stop
+        return None
+    last = [m.end() for m in re.finditer(r"^E\d+ \S+ hunt \d+:.*$", log, re.M)][-1]
+    if re.search(r"^D\d+ \S+ .*tag: user", log[last:], re.M):
+        return None
+    return rounds[-2][1], rounds[-1][1]
+
+
 def measure_budget(plan, transcript, closed=False):
     """Write the measured spend into the plan header (mtime kept); return (pct of ceiling or None,
     tokens or None). A closed goal is measured once more (its final spend), then its cache is
@@ -272,13 +290,22 @@ def stop(inp, g):
         if g["mode"] == "autonomous":
             problems.append(
                 f"Budget at {pct}% of its ceiling. If what's left is in the approved plan and the new ceiling stays "
-                f"within 2× the approved one: {raise_to}, log `D budget raised to … (tag: auto)`, say so in the "
+                f"within 2× the approved {g['approved']} (plan-set refuses past it): {raise_to}, log `D budget raised to … (tag: auto)`, say so in the "
                 "overview, and continue. Otherwise (new scope, or past 2×) stop dispatching, set status waiting, "
                 "and ask the user: continue / cut scope / stop.")
         else:
             problems.append(
                 f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
                 f"continue / cut scope / stop. On continue, {raise_to}.")
+    try:
+        stalled = hunt_stalled(g["plan"]) if g["status"] in OPEN else None
+    except Exception:
+        stalled = None
+    if stalled:
+        problems.append(
+            f"The bug hunt isn't converging (real bugs: {stalled[0]} → {stalled[1]}) — fixes are making new bugs. "
+            "Stop fixing: set status waiting and ask the user: simplify the part that keeps breaking (recommended) / "
+            "fix and hunt again / deliver with the known issues listed (rules/loop.md → Bug hunt).")
     if g["status"] == "running" and not waiting_on_background(g["plan"]):
         problems.append(
             f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "

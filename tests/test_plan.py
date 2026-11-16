@@ -92,6 +92,34 @@ class Approval(PlanBase):
         self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
 
 
+class Approved(PlanBase):
+    def approved(self):
+        return re.search(r"approved: ([^|\n]*)", self.read(self.p)).group(1).strip()
+
+    def test_raise_past_2x_needs_the_user(self):
+        self.ps("--header", "status=running", "mode=autonomous", "budget=L 1M")
+        self.assertEqual(self.approved(), "L 1M")
+        log = os.path.join(self.g, "log.md")
+        self.run_s("log.py", log, "D", "budget raised to L 1.8M (tag: auto)")
+        self.ps("--header", "budget=L 1.8M")
+        self.assertEqual(self.approved(), "L 1M")  # an auto raise doesn't move the anchor
+        self.run_s("log.py", log, "D", "budget raised to L 3M (tag: auto)")
+        self.assertIn("past 2× the approved L 1M", self.ps("--header", "budget=L 3M", ok=False))
+        self.run_s("log.py", log, "D", "budget: continue to ~3M (tag: user)")
+        self.ps("--header", "budget=L 3M")
+        self.assertEqual(self.approved(), "L 3M")
+        self.assertIn("budget set L 1.8M → L 3M (approved L 3M)", self.read(log))
+        self.assertIn("past 2× the approved L 3M", self.ps("--header", "budget=L 7M", ok=False))  # that answer is used up
+
+    def test_plan_from_before_approved_gets_it(self):
+        self.ps("--header", "status=running", "mode=autonomous", "budget=M")
+        s = re.sub(r" \| approved: [^|\n]*", "", self.read(self.p))
+        open(self.p, "w", encoding="utf-8").write(s)
+        self.ps("--header", "budget=L 1.5M")
+        self.assertEqual(self.approved(), "M")
+        self.assertIn("past 2× the approved M", self.ps("--header", "budget=L 2.5M", ok=False))
+
+
 class Midnight(PlanBase):
     def test_end_now_always_valid(self):
         if NOW.strftime("%H:%M") >= "23:58":
@@ -190,6 +218,23 @@ class Lean(PlanBase):
             self.assertEqual(estimate.history(self.p), [(100, 50), (40, 20), (200, 40)])
             self.assertEqual(estimate.ratio(self.p), (0.5, 3))
         self.assertIn("likely ~50m, ~50m left (past goals took ×0.50 of the critical path, last 3)", self.ps("S1", "notes=m"))
+
+
+class Tokens(PlanBase):
+    def test_tokens_likely_from_past_goals(self):
+        with open(os.path.join(self.store, "lessons.md"), "w", encoding="utf-8") as f:
+            f.write("- d a fix | steps 4 | time est 10m critical path / actual 5m | tokens est M / ~400k | x\n"
+                    "- d b fix | steps 10 | time est 10m critical path / actual 5m | tokens est L 3M -> L 6M / ~2M | x\n")
+        pat = os.path.join(self.home, ".claude", "mama", "patterns.md")
+        with open(pat, "w", encoding="utf-8") as f:
+            f.write("## Goals and estimates\n\n- c (fix, 2 steps): est 9m critical path / M, actual 5m / 300k measured\n")
+        self.ps("--header", "budget=S")
+        out = self.ps("S1", "est=10m")
+        self.assertIn("tokens likely ~150k (1 steps × ~150k per step, last 3 goals)", out)  # 100k, 200k, 150k
+        self.ps("S+", "title=b", "verify=v", "est=5m")
+        self.ps("S+", "title=c", "verify=v", "est=5m")
+        self.assertIn("tokens likely ~450k (3 steps", self.ps("S3", "notes=n"))
+        self.assertIn("over the budget size S", self.ps("S3", "notes=m"))
 
 
 if __name__ == "__main__":

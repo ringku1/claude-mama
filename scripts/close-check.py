@@ -137,7 +137,7 @@ def claimed_tokens(lessons, slug):
     return found[-1] if found else None
 
 
-HUNT = re.compile(r"^E\d+ \S+ hunt (\d+|none)\b(.*)$", re.M)
+HUNT = re.compile(r"^E\d+ \S+ hunt (\d+|none):(.*)$", re.M)  # a round's result; `hunt 3 fixed …` is progress
 PUSH = re.compile(r"^E\d+ \S+ push(ed)?\b", re.M)
 
 
@@ -177,6 +177,16 @@ def hunt_problems(log, head, quick):
     if int(m.group(1)) and not re.search(r"^D\d+ \S+ .*known issues.*tag: user", log[last.end():], re.M):
         out.append(f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them and hunt "
                    "again until a round is clean, or the user accepts them (`D … known issues … (tag: user)`)")
+    return out
+
+
+def hunt_rounds(log):
+    """[(round, real bugs or None)] in log order, `hunt none` lines left out."""
+    out = []
+    for h in HUNT.finditer(log):
+        if h.group(1) != "none":
+            m = re.search(r"(\d+) real", h.group(2))
+            out.append((int(h.group(1)), int(m.group(1)) if m else None))
     return out
 
 
@@ -292,6 +302,9 @@ def main():
     att = sum(int(s[si["att"]] or 0) for s in live if s[si["att"]].isdigit())
     budget = head.get("budget", "?")
     size = budget.split("/")[-1].strip() if "/" in budget else "?"
+    approved = head.get("approved", "—")
+    if approved not in ("—", "", size) and size != "?":
+        size = f"{approved} -> {size}"  # approved at planning -> final ceiling
     spent = f"{round(measured / 1000)}k" if measured else (budget.split("/")[0].strip().lstrip("~") if "/" in budget else "?")
     questions = len(re.findall(r"^Q", log, re.M))
     compactions = len(re.findall(r"^E\d+ \S+ compaction", log, re.M))

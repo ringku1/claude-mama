@@ -6,7 +6,9 @@ dependent steps. Adding every step's estimate over-counted parallel goals 3-4×.
 
 Past goals calibrate it: the metrics lines in the store's lessons.md and the user's
 patterns.md record "est <n>m critical path … actual <m>m (active <k>m)"; the median of
-active / critical path over the last goals scales the estimate (needs 3 of them).
+active / critical path over the last goals scales the estimate (needs 3 of them). Tokens the
+same way: the median measured tokens per step of the last goals × this plan's steps is the
+likely spend, to size the budget from (picked sizes ran from half to 4× of what goals used).
 
 Usage: estimate.py <plan.md>   # prints the critical path, the sum, what's left, and the likely time
 """
@@ -145,6 +147,57 @@ def ratio(plan_path, last=10):
     return min(max(med, 0.2), 1.5), len(r)
 
 
+TOKENS = (re.compile(r"\| steps (\d+) \|[^\n]*?tokens est [^/|\n]*/ ~?([\d.]+)([kM])"),        # lessons.md metrics
+          re.compile(r", (\d+) steps?\):[^\n]*?/ ~?([\d.]+)([kM]) measured"))                # patterns.md goals
+
+
+def token_history(plan_path):
+    """(steps, tokens) per past goal, oldest first, from the same files as history()."""
+    pairs = []
+    store = os.path.dirname(os.path.dirname(os.path.abspath(plan_path)))
+    for f in (os.path.join(store, "lessons.md"), os.path.expanduser("~/.claude/mama/patterns.md")):
+        try:
+            text = open(f, encoding="utf-8").read()
+        except OSError:
+            continue
+        for rx in TOKENS:
+            for m in rx.finditer(text):
+                pair = (int(m.group(1)), round(float(m.group(2)) * (1_000_000 if m.group(3) == "M" else 1_000)))
+                if pair[0] and pair[1] and pair not in pairs:
+                    pairs.append(pair)
+    return pairs
+
+
+def token_rate(plan_path, last=10):
+    """Median tokens per step over the last goals; (None, 0) under 3 records."""
+    r = sorted(t / n for n, t in token_history(plan_path)[-last:])
+    if len(r) < 3:
+        return None, 0
+    mid = len(r) // 2
+    return (r[mid] if len(r) % 2 else (r[mid - 1] + r[mid]) / 2), len(r)
+
+
+def tokens_line(steps, plan_path, size=None):
+    """`tokens likely ~…` for a plan of `steps` live steps, or "" without history."""
+    rate, n = token_rate(plan_path) if plan_path and steps else (None, 0)
+    if rate is None:
+        return ""
+    likely = steps * rate
+    out = f"tokens likely ~{fmt(likely)} ({steps} steps × ~{fmt(rate)} per step, last {n} goals)"
+    try:
+        import spend
+        cap = spend.ceiling(size) if size else None
+    except Exception:
+        cap = None
+    if cap and cap < likely:
+        out += f" — over the budget size {size}: size it to cover this"
+    return out
+
+
+def fmt(tokens):
+    return f"{tokens / 1e6:.1f}M" if tokens >= 1e6 else f"{round(tokens / 1e3)}k"
+
+
 def summary(plan_text, plan_path=None):
     s = steps_of(plan_text)
     if not any(minutes(x[2]) for x in s):
@@ -153,9 +206,13 @@ def summary(plan_text, plan_path=None):
     out = f"estimate: critical path {cp}m (sum {total(s)}m, up to {width(s)} at once) · left {left}m"
     k, n = ratio(plan_path) if plan_path else (None, 0)
     if k is None:
-        return out + " — no past goals to calibrate yet; runs often take less than the critical path"
-    return (out + f" · likely ~{max(round(cp * k), 1)}m, ~{round(left * k)}m left "
-            f"(past goals took ×{k:.2f} of the critical path, last {n})")
+        out += " — no past goals to calibrate yet; runs often take less than the critical path"
+    else:
+        out += (f" · likely ~{max(round(cp * k), 1)}m, ~{round(left * k)}m left "
+                f"(past goals took ×{k:.2f} of the critical path, last {n})")
+    size = re.search(r"budget: [^/|\n]*/ ([^|\n]+)", plan_text)
+    tok = tokens_line(len([x for x in s if x[3] not in SKIP]), plan_path, size.group(1).strip() if size else None)
+    return out + ("\n" + tok if tok else "")
 
 
 if __name__ == "__main__":
