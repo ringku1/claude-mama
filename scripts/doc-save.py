@@ -21,10 +21,14 @@ import fileio  # noqa: E402
 
 
 # An import whose module specifier names Mermaid. Static `import … from "…mermaid…"` works only in
-# a module script; dynamic `import("…mermaid…")` works in any script.
-STATIC = re.compile(r"\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?['\"`][^'\"`]*mermaid", re.I)
-DYNAMIC = re.compile(r"\bimport\s*\(\s*['\"`][^'\"`]*mermaid", re.I)
-JS_TYPES = ("", "text/javascript", "application/javascript", "module")
+# a module script; dynamic `import("…mermaid…")` works in any script. The import clause is
+# whitespace-separated tokens, so a long run of words after `import` can't backtrack badly.
+STATIC = re.compile(r"(?<![.\w$])import\s*(?:[\w$*{},]+(?:\s+[\w$*{},]+)*\s*from\s*)?['\"][^'\"]*(?i:mermaid)")
+DYNAMIC = re.compile(r"(?<![.\w$])import\s*\(\s*['\"`][^'\"`]*(?i:mermaid)")
+# Script types a browser runs (the HTML spec's JavaScript MIME types, plus module).
+JS_TYPES = {"", "module", "text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript",
+            "application/x-javascript", "application/x-ecmascript", "text/x-javascript", "text/x-ecmascript",
+            "text/jscript", "text/livescript"}
 
 
 class MermaidScan(HTMLParser):
@@ -42,10 +46,12 @@ class MermaidScan(HTMLParser):
                 self.diagrams = True
         if tag == "script":
             a = dict(attrs)
-            kind = (a.get("type") or "").strip().lower()
-            if a.get("src"):  # the browser ignores a src script's own text
-                self.loader = self.loader or "mermaid" in a["src"].lower()
-            elif kind in JS_TYPES:
+            kind = (a.get("type") or "").split(";")[0].strip().lower()
+            if kind not in JS_TYPES or "nomodule" in a:  # scripts a modern browser doesn't run
+                return
+            if "src" in a:  # the browser ignores a src script's own text
+                self.loader = self.loader or "mermaid" in (a["src"] or "").lower()
+            else:
                 self.script = (kind == "module", [])
 
     def handle_data(self, data):
@@ -69,7 +75,8 @@ def problems(html):
     scan.feed(html)
     scan.close()
     if scan.diagrams and not scan.loader:
-        out.append("it has Mermaid diagrams but nothing loads Mermaid (a <script src=…mermaid…> or an import of it)")
+        out.append("it has Mermaid diagrams but nothing loads Mermaid (a <script src=…mermaid…>, or an import of it;"
+                   " a static import needs <script type=\"module\">)")
     return out
 
 

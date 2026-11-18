@@ -2,6 +2,7 @@
 """doc-save.py, in a throwaway HOME. Run: python3 tests/test_doc.py"""
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -62,8 +63,18 @@ class DocSave(Base):
             ("a static import in a classic script", '<html>' + pre + '<script>import mermaid from "' + esm + '"'
              '</script></html>', False),
             ("a template-literal dynamic import", '<html>' + pre + '<script>import(`' + esm + '`)</script></html>', True),
-            ("a JSON block is no script", '<html>' + pre + '<script type="application/json">{"a": "import \\"' + esm
-             + '\\""}</script></html>', False),
+            ("a JSON block is no script", '<html>' + pre + '<script type="application/json">{"a": "import(\\"' + esm
+             + '\\")"}</script></html>', False),
+            ("a src script of a type that doesn't run", '<html>' + pre + '<script type="text/plain" src="' + esm
+             + '"></script></html>', False),
+            ("a JavaScript type with parameters", '<html>' + pre + '<script type="text/javascript; charset=utf-8">'
+             'import("' + esm + '")</script></html>', True),
+            ("an older JavaScript type", '<html>' + pre + '<script type="text/ecmascript">import("' + esm + '")'
+             '</script></html>', True),
+            ("a nomodule script", '<html>' + pre + '<script nomodule>import("' + esm + '")</script></html>', False),
+            ("a static import with backticks", '<html>' + pre + '<script type="module">import m from `' + esm
+             + '`</script></html>', False),
+            ("a method named import", '<html>' + pre + '<script>loader.import("' + esm + '")</script></html>', False),
             ("import.meta then a string", '<html>' + pre + '<script type="module">const u = import.meta.url;\n'
              'fetch("mermaid.json")</script></html>', False),
         ]
@@ -74,6 +85,14 @@ class DocSave(Base):
                 self.assertEqual(os.path.exists(os.path.join(goal, "doc.html")), saved, out)
                 if not saved:
                     self.assertIn("nothing loads Mermaid", out)
+
+    def test_long_text_after_import_is_quick(self):
+        goal = self.new_goal()
+        words = " " * 2000 + "word " * 2000
+        page = '<html><pre class="mermaid">g</pre><script type="module">// import ' + words + "</script></html>"
+        start = time.time()
+        self.run_s("doc-save.py", goal, self.page(page), ok=False)
+        self.assertLess(time.time() - start, 5)
 
     def test_a_blank_link_is_refused(self):
         goal = self.new_goal()
