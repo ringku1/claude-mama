@@ -1,82 +1,81 @@
 # Questions
 
-Questions turn a vague goal into specific context, so the result matches what the user expects in every way. Every question must be one the code, docs, lessons or profile couldn't answer, and whose answer would change the work.
+Ask only what the code, docs, lessons or profile can't answer and whose answer changes the work.
 
 ## Before asking
 
-- Research is done, every lens returned (`rules/research.md`). Cite what you found: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
-- If research found the thing **already exists**, lead with that: reuse, extend, or build anyway?
-- **Value filter**: if every option leads to the same work, drop the question; decide and log it (tag `inferred`).
-- **Patterns**: a learned line in `~/.claude/mama/patterns.md` that answers a question settles it — log it (tag `user`, "from patterns") and mention it in one line. Patterns only set the recommended option for the base branch; it is still always asked.
-- **Overrides teach**: when the user picks something other than your recommendation, update `patterns.md` right away.
-- **Cover the case map**: walk every `case:` line. A case the code, precedent, the input or patterns settles → decide, log it (`inferred`), and list the product-facing ones in the overview's Key decisions. A case left open whose answer changes the work → a question. Several small open cases in one area → one question with the recommended handling for all of them.
-- **Pre-mortem**: imagine the goal failed. The likely reasons are your most valuable questions.
+- Every research lens has returned (`rules/research.md`). Cite findings: "Courses use soft delete (store.go:88). Should lessons follow that?" — not "How should deletion work?"
+- Thing **already exists** → lead with that: reuse, extend, or build anyway?
+- **Value filter**: every option leads to the same work → no question; decide and log it (tag `inferred`).
+- **Patterns** settle what they answer (SKILL.md → Learning the user): log it (tag `user`, "from patterns").
+- **Cover the case map**: walk every `case:` line. Settled by code, precedent, input or patterns → decide, log (`inferred`), list product-facing ones in overview Key decisions. Open and changes the work → a question; several small ones in one area → one question with recommended handling for all.
+- **Pre-mortem**: the likely reasons the goal would fail are your best questions.
 
 ## Database changes — settle these first
 
-The schema shapes everything after it — the API, the screens, the tests, the migration — and it is the hardest thing to change once code depends on it. So when research found any database change (`F … db:`), discuss the whole design with the user **before** the other questions and before any plan — in a message of its own, with no other question in it: the other answers depend on the design, so they wait until it's agreed.
+When research found any database change (`F … db:`), discuss the whole design **before** other questions and any plan, in a message of its own with no other question in it: the other answers depend on it.
 
-1. **Propose it whole**, in one AskUserQuestion with a preview: every table and column (type, null, default), keys and foreign keys (on delete), indexes, constraints and enums; what happens to existing rows (default, backfill, data moved or deleted); the migration (one file, per the repo's rules and naming; reversible or not; locks on large tables); and what reads or writes it (queries, API shape, caches). Follow the repo's precedent and say where it comes from.
-2. **Suggest, don't just ask**: recommend one design, and offer the real alternatives (e.g. a column vs a new table, soft vs hard delete, an enum vs a lookup table), each with its one-line trade-off. Options: the recommended design (Recommended) · each alternative · change something.
-3. **Discuss until agreed.** The user's questions and corrections go into a revised proposal, shown again, until they approve it.
+1. **Propose it whole**, in one AskUserQuestion with a preview: each table and column (type, null, default), keys, foreign keys (on delete), indexes, constraints, enums; existing rows (default, backfill, moved or deleted); the migration (one file per repo rules and naming, reversible or not, locks on large tables); its readers and writers (queries, API shape, caches). Follow and cite repo precedent.
+2. **Suggest, don't just ask**: recommend one design and offer the real alternatives (e.g. column vs new table, soft vs hard delete, enum vs lookup table), each with a one-line trade-off. Options: recommended design (Recommended) · each alternative · change something.
+3. **Discuss until agreed.** Fold questions and corrections into a revised proposal and show it again until the user approves.
 
-Each agreed part → a `D … db: <decision> (tag: user)` line. Then log `E db: agreed <n> changes`; with no database change, `E db: none — <why>`. Plan approval of a build, fix or mixed goal is refused without it, and the playback must come after it. The agreed design is the one the plan builds: a different schema later, or a database change found mid-run, goes back to the user the same way (`D … db:` again) before any step uses it.
+Each agreed part → `D … db: <decision> (tag: user)`. Then log `E db: agreed <n> changes`; no database change → `E db: none — <why>`. Plan approval of a build, fix or mixed goal is refused without it; the playback comes after it. A different schema later, or a database change found mid-run, goes back to the user the same way (`D … db:` again) before any step uses it.
 
 ## Expectations — what "done right" means to the user
 
-The work is judged by what the user expected, not by what the plan said. Before asking, walk this checklist. Settle each point from the input, the code, precedent or patterns, citing the source and logging a `D … (tag: inferred)`. Otherwise ask it. A point that can't apply gets one word in the log ("n/a: no UI"). Don't fold points into a vague "anything else?".
+Walk this checklist: settle each point from input, code, precedent or patterns with a cited `D … (tag: inferred)`, else ask it. An inapplicable point gets one word in the log ("n/a: no UI"); never fold points into a vague "anything else?".
 
-1. **Outcome** — what the user sees, gets or can do when it's done, in their words. What they'll check first.
-2. **People & access** — who uses it, which roles or permissions, what others must not see or do.
-3. **Behaviour & edge cases** — the open `case:` lines from research: empty, limits, errors, concurrency, undo, old data.
-4. **Look & copy** — the design or screen to follow, wording, states (loading, empty, error), and what must look exactly like an existing screen.
-5. **Data & interfaces** — the database design agreed above ("Database changes"), plus shapes, names, API contract, compatibility with existing clients.
+1. **Outcome** — what the user sees, gets or can do, in their words; what they check first.
+2. **People & access** — who uses it, roles or permissions, what others must not see or do.
+3. **Behaviour & edge cases** — open `case:` lines: empty, limits, errors, concurrency, undo, old data.
+4. **Look & copy** — design or screen to follow, wording, states (loading, empty, error), what must match an existing screen.
+5. **Data & interfaces** — the agreed design ("Database changes"), shapes, names, API contract, existing-client compatibility.
 6. **Speed & scale** — data sizes and response times that must hold; "no worse than today" counts.
-7. **Must not change** — existing behaviour, screens, APIs or other teams' work that must stay as is.
-8. **Proof** — which tests or checks prove it, and what the user will try by hand.
-9. **Delivery** — base branch, PR, where deliverables go (see "Always asked").
+7. **Must not change** — behaviour, screens, APIs or other teams' work to keep as is.
+8. **Proof** — tests or checks that prove it; what the user tries by hand.
+9. **Delivery** — base branch, PR, where deliverables go ("Always asked").
 
-Research goals use the same list where it fits: outcome = the question answered and how deep, people = who reads it, proof = how claims are sourced, delivery = format and path.
+Research goals use what fits: outcome = question answered and depth, people = readers, proof = how claims are sourced, delivery = format and path.
 
 After the batch, log `E expectations: <n> settled, <m> asked` — plan approval is refused without it.
 
 ## Playback — confirm before planning
 
-After the answers, and before the plan, show the user what they will get, so a wrong picture is caught before any work. One AskUserQuestion with a preview:
+Show what the user will get, in one AskUserQuestion with a preview:
 
-- 4–8 **concrete examples** of the finished work, each one observable: "A teacher with no files opens Storage → sees 'No files yet' and an Upload button." Cover the main path, the edge cases the user cares about, and one example of each must-not-change.
-- **Not included**: the non-goals, in one line each.
+- 4–8 **concrete examples**, each observable: "A teacher with no files opens Storage → sees 'No files yet' and an Upload button." Cover the main path, the edge cases the user cares about, and one per must-not-change.
+- **Not included**: non-goals, one line each.
 - Options: "Yes, that's what I expect (Recommended)" / "Change something" (they type what).
 
-Corrections become `D … (tag: user)` lines and change the examples. Show the playback again only if a correction changed the outcome itself. Log `E playback: confirmed` or `E playback: corrected <n>`; plan approval is refused without it. The confirmed examples become the criteria (`rules/planning.md`) and are what the bug hunt checks against (`rules/loop.md`).
+Corrections → `D … (tag: user)` lines and changed examples; show it again only if one changed the outcome. Log `E playback: confirmed` or `E playback: corrected <n>`; plan approval is refused without it. Confirmed examples become the criteria (`rules/planning.md`) and what the bug hunt checks (`rules/loop.md`).
 
-Quick goals skip the checklist log (a quick goal that needs a database change isn't quick: offer to run it as a full goal); their playback is one line — "You'll get: …" plus what's not included — asked as one more option set in the same AskUserQuestion as the quick questions. A quick goal whose work is a page, a document or a review needs it most: that's where a wrong picture cost a full redo.
+Quick goals skip the checklist log; their playback is one line ("You'll get: …" + not included), one more option set in the quick questions' AskUserQuestion — most needed for a page, document or review, where a wrong picture costs a redo.
 
 ## Always asked
 
-| Goal                         | Must ask                                                                                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| build / fix / mixed          | **Base branch** — options: the repo's default branch (recommended), plus other relevant branches (current, recent), no duplicates; free text allowed. When the work continues an unmerged feature branch, offer "commit on <branch> itself" and "new branch off <branch>". Always asked, never assumed. **PR** — ask me at the end (recommended) / open automatically / no PR → header `pr=ask-at-end | auto | none`. No remote (`git remote` empty): don't ask PR — set `pr=none`, commit only, and say so. |
-| research with a file deliverable | **Commit it?** — leave it uncommitted for you (recommended) / commit on a branch (then base branch + PR are asked too). Plus scope, depth, output path.                       |
-| research, findings only      | Scope, depth. No git questions.                                                                                                                                                  |
-| quick                        | Base branch; PR choice if it changes code.                                                                                                                                       |
+| Goal | Must ask |
+| --- | --- |
+| build / fix / mixed | **Base branch** — options: repo's default branch (recommended), other relevant branches (current, recent), no duplicates, free text allowed; continuing an unmerged feature branch → offer "commit on <branch> itself" and "new branch off <branch>". Never assumed. **PR** — ask me at the end (recommended) / open automatically / no PR → header `pr=ask-at-end | auto | none`. No remote (`git remote` empty): don't ask; set `pr=none`, commit only, say so. |
+| research with a file deliverable | **Commit it?** — leave uncommitted (recommended) / commit on a branch (then base branch + PR). Plus scope, depth, output path. |
+| research, findings only | Scope, depth. No git questions. |
+| quick | Base branch; PR choice if it changes code. |
 
-**After the answers:** for every answer that overrode the recommended option or stated a preference, run `scripts/learn.py seen|stated "<pattern>"` now, before planning. Nothing new → log `E learn none`. (The Stop hook blocks until one of the two follows the last `tag: user` decision.)
+**After the answers:** each override of a recommendation or stated preference → `scripts/learn.py seen|stated "<pattern>"` before planning; nothing new → log `E learn none`. The Stop hook blocks until one follows the last `tag: user` decision.
 
-**Mode** (checkpointed — recommended for a repo's first goals / autonomous) is asked together with plan approval, as the approval question's options — not in the question batch, and never left unanswered.
+**Mode** is asked only with plan approval (SKILL.md step 4), never in the question batch; checkpointed is recommended for a repo's first goals.
 
 ## How to ask
 
-- AskUserQuestion: ≤4 questions per screen, 2-4 options, recommended first with "(Recommended)", one-line trade-off each. The user can always type their own.
-- Broad → specific; answers narrow the next round. Ask every checklist point that is still open, even if that takes a third round; more than ~3 rounds means the goal should be split, so propose that. Each option names its concrete effect ("the list shows deleted files greyed out"), never an abstract label.
+- AskUserQuestion: ≤4 questions per screen, 2-4 options, recommended first with "(Recommended)", one-line trade-off each.
+- Broad → specific, each round narrowed by answers. Ask every open checklist point, even in a third round; more than ~3 rounds → propose splitting the goal. Each option names its concrete effect ("the list shows deleted files greyed out"), never an abstract label.
 - Log each question as a `Q` line before asking.
 
 ## After answers
 
 - Each answer → `D` line, tag `user`.
-- Unanswered and non-blocking → `D` line with your recommended default, tag `assumed`, shown in overview "Needs your input" until confirmed. Confirm it before any step that depends on it starts.
-- Answers that will recur (test style, naming) → `profile.md`, so they're never asked again.
+- Unanswered and non-blocking → `D` line with your recommended default, tag `assumed`, shown in overview "Needs your input"; confirm it before a step that depends on it starts.
+- Answers that will recur (test style, naming) → `profile.md`, never asked again.
 
 ## Mid-run
 
-Ask only for: one-way choices (see `rules/planning.md` → Reversibility), a real goal change, a blocker you can't route around. Everything else: decide, log, and flag it in overview "Key decisions" if the user may want to review it.
+Ask only for one-way choices (`rules/planning.md` → Reversibility), a real goal change, or a blocker you can't route around. Otherwise decide, log, and flag in overview "Key decisions" what the user may want to review.

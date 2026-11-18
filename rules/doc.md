@@ -44,11 +44,11 @@ Plain words throughout:
 - no plan or log IDs;
 - no secrets, keys, env values or customer data.
 
-The page is one self-contained HTML file with inline CSS and light and dark themes. It must also work opened straight from disk, so its diagrams are inline SVG, or Mermaid with its own `<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js">` and the call that starts it, never relying on a viewer to draw them. If the Artifact tool is available, follow its page contract first: its quickstart or design guidance; the page still stays one whole `<html>…</html>` document, since `doc-save.py` refuses anything else. Big goals: one agent writes the page from the lens notes, so you don't hold the HTML; the notes go into a scratch file it reads, and its brief points to that file.
+The page is one self-contained HTML file with inline CSS and light and dark themes, and no scripts loaded from elsewhere. Diagrams are inline `<svg>`: boxes and arrows with labels, laid out by hand, so they draw the same on claude.ai and opened from disk. If the Artifact tool is available, follow its page contract first: its quickstart or design guidance. The page still stays one whole `<html>…</html>` document, since `doc-save.py` refuses anything else. Big goals: one agent writes the page from the lens notes, so you don't hold the HTML. The notes go into a scratch file it reads, and its brief points to that file.
 
 ## 4. Publish and reply
 
-- Write the page to a scratch file (the session's scratchpad, else a temp folder): file tools treat `.claude/` as sensitive. Save it with `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/doc-save.py <store>/<slug> <scratch file>`. The script refuses a page that isn't whole, or Mermaid diagrams without their script; fix the page and save again. It prints the link on record (`doc.url: …`).
+- Write the page to a scratch file (the session's scratchpad, else a temp folder): file tools treat `.claude/` as sensitive. Save it with `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/doc-save.py <store>/<slug> <scratch file>`. The script refuses a page that isn't whole, has no `<svg>` diagram, uses Mermaid, or loads scripts from elsewhere; fix the page and save again. It prints the link on record (`doc.url: …`).
 - **Artifact tool available:** publish the scratch file as a private page, only after `doc-save.py` saved it and unchanged since (so it matches `doc.html`).
   - A link is on record: read that artifact first (Artifact `read`), then publish with it as `url` to update the same page.
   - First publish: record the link with `doc-save.py <store>/<slug> --url <link>`.

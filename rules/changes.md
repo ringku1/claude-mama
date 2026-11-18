@@ -1,46 +1,41 @@
 # Changes mid-goal
 
-Goals, tests and wishes change. Handle each change so finished work isn't lost and nothing silently contradicts an earlier decision.
+Keep finished work; never silently contradict an earlier decision.
 
 ## Running a change (`/mama change`)
 
-0. **Closed goal** (`done`): reopen it — `plan-set.py --header status=running`, log `E reopen: <why>` — so the new work is tracked, measured and closed again like the first round (new steps, close check, a new metrics line appended to `lessons.md` — it stays append-only; close-check reads the latest line for the slug — Trello comment after the push). Never change code for a closed goal off the books, e.g. only noting it in `tests.md`. Recreate its worktree on the branch if it was removed; merged branch → a new goal instead.
-1. **Re-enter** the goal if this session isn't already in it (SKILL.md → Re-entry). Never change another session's open goal unless the user named its slug.
-2. **Hold:** dispatch nothing new. A running agent whose step the change affects → stop it (TaskStop) and set that step back to `todo`; unaffected agents keep going.
+0. **Closed goal** (`done`): reopen it (`plan-set.py --header status=running`, log `E reopen: <why>`) and run the new work like the first round: new steps, close check, a new metrics line appended to `lessons.md` (append-only; close-check reads the latest), Trello comment after the push. Never change a closed goal's code off the books (e.g. only a note in `tests.md`). Removed worktree → recreate it on the branch; merged branch → a new goal instead.
+1. **Re-enter** the goal if this session isn't in it (SKILL.md → Re-entry). Never change another session's open goal unless the user named its slug.
+2. **Hold:** dispatch nothing new. Stop (TaskStop) a running agent whose step the change affects and set that step back to `todo`; others keep going.
 3. **Unclear request** → one AskUserQuestion batch (`rules/questions.md`), nothing more.
-4. **Draft the diff** — classify each part (goal / test / deliverable, sections below) and list: steps added, altered, made obsolete; criteria added or changed; decisions to revisit; effect on time and budget size.
-5. **Approve:** show the diff as one compact table (change · step · effect). Material change (new area, bigger size, a done step reopened, a decision reversed) → AskUserQuestion: apply (recommended) / change something. Small → apply and say so in one line.
-6. **Apply** only with `plan-set.py`: new rows `S+` / `C+` (next id, verify required), altered rows `S3 key=…`, dropped work `status=obsolete "notes=dropped: <why>"` — never delete rows or rewrite done steps. Size grew → `--header budget=M` (or `budget='L <n>k|M'`); the measured spend part is kept.
-7. **Record:** `log.py E "change: <what> — +S9,S10; S4 obsolete; D3 revisit"`, plus a `D` line (`tag: user`) per user choice, then `learn.py` or `E learn none`.
-8. **Resume:** regenerate overview.md (Goal section current, "What changed along the way" gets one line), restore the status the goal had (running → continue the loop at the next ready step; waiting/paused → stay).
+4. **Draft the diff:** classify each part (goal / test / deliverable, below); list steps added, altered, obsolete; criteria added or changed; decisions to revisit; effect on time and budget size.
+5. **Approve:** show the diff as one compact table (change · step · effect). Material (new area, bigger size, a done step reopened, a decision reversed) → AskUserQuestion: apply (recommended) / change something. Small → apply and say so in one line.
+6. **Apply** only with `plan-set.py`: new rows `S+` / `C+` (next id, verify required), altered rows `S3 key=…`, dropped work `status=obsolete "notes=dropped: <why>"`. Never delete rows or rewrite done steps. Size grew → `--header budget=M` (or `budget='L <n>k|M'`); measured spend is kept.
+7. **Record:** `log.py E "change: <what> — +S9,S10; S4 obsolete; D3 revisit"`, a `D` line (`tag: user`) per user choice, then `learn.py` or `E learn none`.
+8. **Resume:** regenerate overview.md (Goal section current, one line in "What changed along the way"); restore the previous status (running → continue the loop at the next ready step; waiting/paused → stay).
 
 ## Fix goal (`/mama fix`)
 
-Fix what a goal found (a test run, review or research) as a new `fix` goal whose input is that goal's findings — its report, `F` lines and Parked list (no slug: this session's last goal). Start it with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Don't write to the source goal's files.
+Input: the source goal's report, `F` lines and Parked list (no slug: this session's last goal). Start with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Never write to the source goal's files.
 
 ## Goal change
 
-1. Diff old goal vs new: what's added, removed, altered.
-2. Steps: no longer needed → `obsolete` (never delete rows); new work → new steps; done work that still fits → keep.
-3. Decisions: re-check each one that depended on the old goal → mark `active` / `revisit` / `obsolete`.
-4. Done criteria: update; criteria removed keep their row with status note.
-5. A change that adds or alters a database change → discuss it first (`rules/questions.md` → Database changes) and log the new `D … db:` lines before re-planning.
-6. Log one `change` event: what changed and the impact (`+S9,S10; S4 obsolete; D3 revisit`).
-7. Update the Goal section of overview (plain, current-state wording) and "What changed along the way".
-8. Scope moved materially (new area, much bigger) → re-validate and show the plan table again for approval. Small → continue and tell the user in one line.
+On top of the steps above:
 
-**New behaviour vs. reopened step**: a change that adds or alters behaviour → a new step (history stays readable, done work stays done). A change only to how a step is proven → reopen that step (below).
+- Done work that still fits stays; removed criteria keep their row with a status note.
+- Decisions that depended on the old goal → `active` / `revisit` / `obsolete`.
+- A new or altered database change → discuss it first (`rules/questions.md` → Database changes) and log the new `D … db:` lines before re-planning.
+- Scope moved materially (new area, much bigger) → re-validate and show the plan table again for approval.
 
-**Ambiguity introduced by a change** (e.g. "add an ellipsis" — does it count toward the limit?): apply the decision rules in `rules/planning.md`; reversible → decide, log, flag in overview "Key decisions" for review.
+**New behaviour vs. reopened step**: added or altered behaviour → a new step (history stays readable, done work stays done). A change only to how a step is proven → reopen that step (below).
+
+**Ambiguity introduced by a change**, including a behaviour choice hidden in a new test case (e.g. "add an ellipsis": does it count toward the limit? "combining accents": by code point, or by visible character, which needs a new library): use the decision rules in `rules/planning.md`. Reversible → decide, log, flag in overview "Key decisions" for review; one-way (like a new dependency) → ask.
 
 ## Test change ("change these tests", new proof required)
 
-- Update the affected steps' verify and the criteria they prove.
-- Rerun only those steps' verifies. Steps already `done` whose proof changed go back to `testing`.
-- Never weaken or delete a test to make it pass unless the user explicitly asks; if a requested change looks like weakening, say so in one line and do it only on confirmation.
-- A new test case can hide a behaviour choice (e.g. "combining accents" → reverse by code point, or by visible character which needs a new library). Apply the decision rules in `rules/planning.md`: reversible → decide, log, flag in overview; one-way (like a new dependency) → ask.
+- Update the affected steps' verify and the criteria they prove; rerun only those verifies. `done` steps whose proof changed go back to `testing`.
+- Never weaken or delete a test to make it pass unless the user explicitly asks. A requested change that looks like weakening → say so in one line; do it only on confirmation.
 - A reopened step's new commit is its own commit; list both hashes in the step's notes.
-- Log `change`.
 
 ## New deliverable
 
@@ -48,8 +43,8 @@ Add a `document` step with its output path; log `change`; continue.
 
 ## Research result changes the goal
 
-If a research step shows the goal is wrong, impossible or much bigger than thought: stop dispatching, put it in overview "Needs your input" with your recommendation, wait.
+Goal wrong, impossible or much bigger → stop dispatching, put it in overview "Needs your input" with your recommendation, wait.
 
 ## Base branch moved / someone else changed the branch
 
-Detect on each commit (`git status`, `git log -1 origin/<branch>`). Unexpected commits or changes you didn't make → stop, report, wait.
+Check on each commit (`git status`, `git log -1 origin/<branch>`). Commits or changes you didn't make → stop, report, wait.
