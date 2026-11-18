@@ -28,7 +28,7 @@ class DocSave(Base):
     def test_mermaid_needs_its_script(self):
         goal = self.new_goal()
         bare = '<html><pre class="mermaid">graph TD; A-->B</pre></html>'
-        self.assertIn("no <script", self.run_s("doc-save.py", goal, self.page(bare), ok=False))
+        self.assertIn("nothing loads Mermaid", self.run_s("doc-save.py", goal, self.page(bare), ok=False))
         self.assertFalse(os.path.exists(os.path.join(goal, "doc.html")))
         self.run_s("doc-save.py", goal, self.page(bare.replace("<html>", "<html>" + MERMAID)))
 
@@ -45,6 +45,45 @@ class DocSave(Base):
                "mermaid.initialize({});\n</script>")
         self.run_s("doc-save.py", goal, self.page('<html><pre class="diagram mermaid">graph TD; A-->B</pre>' + esm + "</html>"))
         self.assertTrue(os.path.exists(os.path.join(goal, "doc.html")))
+
+    def test_mermaid_loader_cases(self):
+        esm = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"
+        pre = '<pre class="mermaid">graph TD; A-->B</pre>'
+        cases = [  # (name, page, saved?)
+            ("an import before Mermaid's", '<html>' + pre + '<script type="module">import a from "./a.js";\n'
+             'import mermaid from "' + esm + '";</script></html>', True),
+            ("a comment after an import is no loader", '<html>' + pre + '<script type="module">'
+             'import {a} from "./a.js"\n// mermaid todo</script></html>', False),
+            ("a dynamic import in a classic script", '<html>' + pre + '<script>import("' + esm + '")'
+             '.then(m => m.default.run());</script></html>', True),
+            ("class=\"mermaid\" as text is no diagram", '<html><p>use class="mermaid" on a pre</p></html>', True),
+            ("an unquoted class", '<html><pre class=mermaid>graph TD; A-->B</pre></html>', False),
+            ("an uppercase CLASS", '<html><pre CLASS="x mermaid">graph TD; A-->B</pre></html>', False),
+        ]
+        for name, page, saved in cases:
+            with self.subTest(name):
+                goal = self.new_goal(slug="m" + str(cases.index((name, page, saved))))
+                out = self.run_s("doc-save.py", goal, self.page(page), ok=saved)
+                self.assertEqual(os.path.exists(os.path.join(goal, "doc.html")), saved, out)
+                if not saved:
+                    self.assertIn("nothing loads Mermaid", out)
+
+    def test_a_blank_link_is_refused(self):
+        goal = self.new_goal()
+        out = self.run_s("doc-save.py", goal, self.page("<html>hi</html>"), "--url", "  ", ok=False)
+        self.assertIn("'' is not a link", out)
+        self.assertFalse(os.path.exists(os.path.join(goal, "doc.html")))
+        self.assertFalse(os.path.exists(os.path.join(goal, "doc.url")))
+
+    def test_a_page_that_isnt_utf8_is_refused(self):
+        goal = self.new_goal()
+        p = os.path.join(self.tmp, "latin1.html")
+        with open(p, "wb") as f:
+            f.write("<html>caf\u00e9</html>".encode("latin-1"))
+        out = self.run_s("doc-save.py", goal, p, ok=False)
+        self.assertIn("isn't UTF-8 text", out)
+        self.assertNotIn("Traceback", out)
+        self.assertFalse(os.path.exists(os.path.join(goal, "doc.html")))
 
     def test_a_bad_link_with_a_page_writes_nothing(self):
         goal = self.new_goal()
