@@ -1,0 +1,1 @@
+2026-11-10 delete-user build | steps 2 | time est 25m critical path (sum 25m) / actual 44m (active 30m) | tokens est S / ~140k | questions 2 (changed plan: 0) | fix rounds 0 | hunt rounds 1 (real bugs 0) | checker findings 0 | compactions 0 | wrong assumptions 0 | reversed decisions 0

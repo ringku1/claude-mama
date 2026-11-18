@@ -226,6 +226,7 @@ class WrittenSlugs(unittest.TestCase):
     def test_file_tools(self):
         self.assertEqual(self.slugs("Write", {"file_path": "/r/.claude/mama/goal-b/overview.md"}), ["goal-b"])
         self.assertEqual(self.slugs("Write", {"file_path": "/r/.claude/mama/goal-b/tests.md"}), [])
+        self.assertEqual(self.slugs("Write", {"file_path": "/r/.claude/mama/goal-b/doc.html"}), [])
 
 
 class Hook(Base):

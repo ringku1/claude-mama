@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: doc-explains-goal
+expected_outcome: |
+  With one closed goal in the store (delete-user: status done, its worktree kept on
+  feat/delete-user with one commit that adds user.deleted_at through migration
+  002_user_deleted_at.sql and a delete_user() that soft-deletes, log.md deciding soft delete
+  because support must be able to restore a user deleted by mistake, and a restore command
+  parked), /mama doc writes .claude/mama/delete-user/doc.html: a self-contained page that walks
+  the flow with a diagram, explains each function the goal changed and the deleted_at column
+  with why, lists what it depends on and what's left, and changes no other goal file, source
+  file or git state.
+context:
+  scaffold_script: place-files.sh

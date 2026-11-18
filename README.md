@@ -56,6 +56,7 @@ Don't have Claude Code yet? Get it at [code.claude.com](https://code.claude.com)
 | `/mama status` | see progress and when it will finish |
 | `/mama ask <question>` | ask about the work ("why did you choose X?") |
 | `/mama test` | get steps to try it yourself, plus an automatic re-check |
+| `/mama doc` | get one page that explains the whole work in plain words: the flow with diagrams, each function, each database column and why, what it depends on, and what's left |
 | `/mama fix` | fix what a test or review found |
 | `/mama change <what>` | change the plan |
 | `/mama pause` · `/mama resume` · `/mama list` | pause, continue, or see all work |
@@ -157,7 +158,7 @@ It stops with nothing changed if `settings.json` isn't valid JSON, and refuses t
 
 ### Where things live
 
-- **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
+- **In each project:** `.claude/mama/` holds an `overview.md` (for you), plus `plan.md` and `log.md` (for mama) per piece of work, `doc.html` when you ask for `/mama doc` (also published as a private claude.ai page when Claude Code can), and `profile.md` and `lessons.md` for the project. mama keeps these out of git automatically.
 - **Your machine:** `~/.claude/mama/patterns.md`, how you like to work (you can edit it; the version before mama's last change is kept as `patterns.md.bak`), and `activity.log`, which records which session wrote to which piece of work. It decides which work the hooks treat as a session's own, and cost counts the sessions recorded there (plus a transcript scan only for work started before `activity.log` existed).
 - **The skill:** `SKILL.md` (the flow, loaded on every `/mama`), `rules/` (read at the step that needs them), `scripts/`, `hooks/`, `templates/`.
 

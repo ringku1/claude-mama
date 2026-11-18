@@ -1,8 +1,8 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks questions that pin down what the user expects and confirms them as concrete examples, plans, then loops dev → test → fix with as many parallel agents as the work allows, and hunts for bugs and fixes them until a hunt comes back clean, tracking everything in files. Subcommands: quick, status, ask, test, fix, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks questions that pin down what the user expects and confirms them as concrete examples, plans, then loops dev → test → fix with as many parallel agents as the work allows, and hunts for bugs and fixes them until a hunt comes back clean, tracking everything in files. Subcommands: quick, status, ask, test, doc, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
-argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | fix [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
+argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | doc [slug] | fix [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
 
 # mama
@@ -33,6 +33,7 @@ Parse `$ARGUMENTS`:
 | `status` (or "status?" mid-run) | Read-only (new session: read state as in Re-entry first). Print: goal status (if `waiting`: what the user should look at), progress, running steps (started HH:MM, ETA = start + est), estimated finish (now + `likely … left` from `scripts/estimate.py <plan.md>`), blockers, next. Regenerate `overview.md` only for this session's own goal. |
 | `ask [<slug>] <question>` | Answer a question about a goal's work — read `rules/ask-test.md` → "Asking about the work". |
 | `test [<slug>] [<what>]` | Help the user test what a goal built, and re-check it — read `rules/ask-test.md` → "Testing the work". |
+| `doc [<slug>]` | Explain a goal's whole work on one page: flow, functions, data, dependencies, what's left — read `rules/doc.md`. |
 | `fix [<slug>] [<what>]` | Fix what a goal found (a test run, review or research) as a new `fix` goal — read `rules/changes.md` → "Fix goal". |
 | `change [<slug>] <what>` (or "change the plan: …" mid-run) | Add, alter or drop a goal's scope, tests or deliverables — read `rules/changes.md` → "Running a change". No slug: this session's goal; none or several open → list them and ask. |
 | "go" / "continue" at a checkpoint | Set goal status `running` with `plan-set.py` (it logs `E resume` itself), continue the loop. |
@@ -48,7 +49,7 @@ Parse `$ARGUMENTS`:
 **Store** = `<main checkout>/.claude/mama/`, where main checkout = `$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")` (git < 2.31: drop `--path-format=absolute` and resolve the path from the cwd) — the same store from any worktree. On first use, append `.claude/mama/` and `.claude/worktrees/` to `info/exclude` under `git rev-parse --git-common-dir` (a linked worktree has a `.git` file, not a folder) so neither reaches a commit.
 
 - `profile.md` — repo facts: commands, conventions, things never to do; created on first use from the repo's rules. `lessons.md` — what past goals taught; read during research, created at the first close, append only.
-- `<slug>/overview.md` — **for the user**: plain language, no IDs or jargon. `<slug>/plan.md` — **for you**: the source of truth for criteria, steps, progress. `<slug>/log.md` — **for you**, append-only: questions, decisions, findings, changes, events. `<slug>/tests.md` — what `/mama test` gave the user and what they reported.
+- `<slug>/overview.md` — **for the user**: plain language, no IDs or jargon. `<slug>/plan.md` — **for you**: the source of truth for criteria, steps, progress. `<slug>/log.md` — **for you**, append-only: questions, decisions, findings, changes, events. `<slug>/tests.md` — what `/mama test` gave the user and what they reported. `<slug>/doc.html` (+ `doc.url`) — the page `/mama doc` built.
 - `~/.claude/mama/patterns.md` (all repos) — how this user works (choices, corrections, preferences, estimate accuracy), in plain language they can read and edit; their edits win. Created from `templates/patterns.md` on first use.
 
 Skill files (`templates/`, `rules/`, `scripts/`) live in `${CLAUDE_SKILL_DIR}`; read each only when the flow points to it. Run every script through the launcher: `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/<name>.py …` — short mentions like `scripts/lock.py` mean the same. Slug: 2-5 kebab-case words from the goal.

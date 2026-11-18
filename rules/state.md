@@ -1,6 +1,6 @@
 # Goals on disk: isolation, guards, learning
 
-Read at intake (any goal, quick included) and at re-entry. `/mama status`, `ask`, `test` and `list` don't need it.
+Read at intake (any goal, quick included) and at re-entry. `/mama status`, `ask`, `test`, `doc` and `list` don't need it.
 
 ## Several goals at once
 
