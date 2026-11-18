@@ -19,11 +19,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402
 
 
+# "mermaid" as a whole class token, not part of language-mermaid or mermaid-legend.
+CLASS = r"class=[\"'](?:[^\"']*\s)?mermaid[\"'\s]"
+# A loader: <script src=…mermaid…>, or an inline <script type="module"> that imports Mermaid.
+SRC = r"<script[^>]+src=[^>]*mermaid"
+ESM = r"<script\b[^>]*type=[\"']?module\b[^>]*>(?:(?!</script)[^;])*?\bimport\b(?:(?!</script)[^;])*?mermaid"
+
+
 def problems(html):
     out = []
     if not re.search(r"<html\b", html, re.I) or not re.search(r"</html>", html, re.I):
         out.append("it isn't a whole HTML page (no <html> … </html>)")
-    if re.search(r"class=[\"'][^\"']*\bmermaid\b", html) and not re.search(r"<script[^>]+src=[^>]*mermaid", html, re.I):
+    if re.search(CLASS, html) and not (re.search(SRC, html, re.I) or re.search(ESM, html, re.I | re.S)):
         out.append("it has Mermaid diagrams but no <script src=…mermaid…> to draw them")
     return out
 
@@ -42,9 +49,14 @@ def main():
     goal = args[0]
     if not os.path.isfile(os.path.join(goal, "plan.md")):
         sys.exit(f"REFUSED: {goal} is not a goal folder (no plan.md)")
+    if url and not re.match(r"https?://\S+$", url):
+        sys.exit(f"REFUSED: {url!r} is not a link")
     if len(args) == 2:
-        with open(args[1], encoding="utf-8") as f:
-            html = f.read()
+        try:
+            with open(args[1], encoding="utf-8") as f:
+                html = f.read()
+        except OSError:
+            sys.exit(f"REFUSED: {args[1]} not found or unreadable")
         bad = problems(html)
         if bad:
             sys.exit("REFUSED: the page " + "; ".join(bad) + ".")
@@ -52,8 +64,6 @@ def main():
         print(f"saved {os.path.join(goal, 'doc.html')}")
     url_file = os.path.join(goal, "doc.url")
     if url:
-        if not re.match(r"https?://\S+$", url):
-            sys.exit(f"REFUSED: {url!r} is not a link")
         fileio.write_atomic(url_file, url + "\n")
     if os.path.isfile(url_file):
         with open(url_file, encoding="utf-8") as f:
