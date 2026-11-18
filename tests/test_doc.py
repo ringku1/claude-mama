@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """doc-save.py, in a throwaway HOME. Run: python3 tests/test_doc.py"""
 import os
+import subprocess
 import sys
 import unittest
 
@@ -40,6 +41,34 @@ class DocSave(Base):
                 if refusal:
                     self.assertIn(refusal, out)
         self.assertIn("document.body", self.read(os.path.join(goal, "doc.html")))
+
+    def test_cited_code_must_be_on_the_goals_branch(self):
+        goal = self.new_goal()
+        git = ["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@t"]
+        for path in ("apps/api/course/service.go", "apps/web/a/x/service.go", "apps/web/b/x/service.go"):
+            os.makedirs(os.path.join(self.repo, os.path.dirname(path)), exist_ok=True)
+            with open(os.path.join(self.repo, path), "w") as f:
+                f.write("package x\n\nfunc A() {}\n")
+        subprocess.run(git + ["checkout", "-q", "-b", "feat/x"], check=True)
+        subprocess.run(git + ["add", "apps"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "x"], check=True)
+        self.run_s("plan-set.py", self.plan(goal), "--header", "branch=feat/x")
+
+        def cite(refs):
+            return PAGE.replace("hi", " ".join(f'<span class="loc">{r}</span>' for r in refs))
+        ok = ["apps/api/course/service.go:3", "api/course/service.go:1", "a/x/service.go:2",
+              "x/service.go:99"]  # full, shortened, and ambiguous (not checked)
+        self.assertIn("saved", self.run_s("doc-save.py", goal, self.page(cite(ok))))
+        for ref, why in (("apps/api/course/service.go:4", "the file has 3 lines"),
+                         ("apps/api/course/gone.go:1", "no such file on feat/x"),
+                         ("course/service.go:0", "the file has 3 lines")):
+            with self.subTest(ref):
+                out = self.run_s("doc-save.py", goal, self.page(cite(ok + [ref])), ok=False)
+                self.assertIn("cites code that isn't there", out)
+                self.assertIn(why, out)
+        self.run_s("plan-set.py", self.plan(goal), "--header", "branch=feat/gone")
+        out = self.run_s("doc-save.py", goal, self.page(cite(["apps/api/course/gone.go:1"])))
+        self.assertIn("weren't checked", out)
 
     def test_a_blank_link_is_refused(self):
         goal = self.new_goal()

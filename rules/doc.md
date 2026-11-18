@@ -3,7 +3,10 @@
 Read for `/mama doc [<slug>]`: one page that explains everything a goal built or found, written so a new teammate understands it in one read. Works on open and closed goals, from any session.
 
 - **Which goal:** as in `ask` (`rules/ask-test.md`), named in the first line of the reply.
-- **Read-only:** no edits to the goal's code, `plan.md`, `log.md` or `overview.md`. The page goes to `<store>/<slug>/doc.html` and its link to `doc.url`, both through `scripts/doc-save.py`; nothing else is written. If the work turns out wrong or missing, say so and offer `/mama change <slug> …` (open goal) or a new goal (closed one).
+- **Read-only:** no edits to the goal's code, `plan.md`, `log.md` or `overview.md`. The page goes to `<store>/<slug>/doc.html` and its link to `doc.url`, both through `scripts/doc-save.py`; nothing else is written, apart from a temporary detached worktree for read-only agents when the goal's own is gone, removed after. If the work turns out wrong or missing, say so and offer `/mama change <slug> …` (open goal) or a new goal (closed one).
+
+- **Cost:** every step re-reads this session's history. If the session has already done other work, suggest in the first line of the reply that running it in a fresh session is cheaper, then carry on.
+- **A page is on record** (`doc.html`) and the goal's branch is still at the commit it names: copy it to a scratch file and update it with what's new (decisions, answers, status) instead of rebuilding it. The branch has moved, the page names no commit, or there is no branch: build it again.
 
 ## 1. Gather the record
 
@@ -29,7 +32,7 @@ Where the record and the code disagree, the code wins, and the page says so. Wha
 
 Pick one small, concrete example that runs through the whole page (e.g. "Rina uploads `notes.pdf`, 2 MB, to Course 12") and reuse its values in the flow, function and data sections. Sections, in this order:
 
-1. **At a glance:** what it does, in 2–3 sentences; the example as a short story; status and progress.
+1. **At a glance:** what it does, in 2–3 sentences; the example as a short story; status and progress; the commit the page was built from.
 2. **The whole flow:** a diagram from trigger to result (a sequence or flowchart), then a numbered walk-through that follows the example values through each step.
 3. **Each part:** grouped by module or screen. For each function or method: what it does and why, the example's input and output, what it calls, and what can go wrong. Names in `monospace`, with the `file:line` in small text. Add a snippet of a few lines only when it makes an idea clearer.
 4. **Data:** an entity-relationship diagram, then one table per database table with these columns: column, type, can be empty, default, meaning, why. Add an example row using the example's values, the indexes and constraints, and what the migration did to existing rows.
@@ -48,7 +51,7 @@ The page is one self-contained HTML file with inline CSS and light and dark them
 
 ## 4. Publish and reply
 
-- Write the page to a scratch file (the session's scratchpad, else a temp folder): file tools treat `.claude/` as sensitive. Save it with `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/doc-save.py <store>/<slug> <scratch file>`. The script refuses a page that isn't whole, has no `<svg>` diagram, uses Mermaid, or loads scripts from elsewhere; fix the page and save again. It prints the link on record (`doc.url: …`).
+- Write the page to a scratch file (the session's scratchpad, else a temp folder): file tools treat `.claude/` as sensitive. Save it with `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/doc-save.py <store>/<slug> <scratch file>`. The script refuses a page that isn't whole, has no `<svg>` diagram, uses Mermaid, loads scripts from elsewhere, or cites a `file:line` the goal's branch doesn't have; fix the page and save again. It can't tell whether a line holds what the page says it does, so on an update, recheck each `file:line` the changed text cites. It prints the link on record (`doc.url: …`).
 - **Artifact tool available:** publish the scratch file as a private page, only after `doc-save.py` saved it and unchanged since (so it matches `doc.html`).
   - A link is on record: read that artifact first (Artifact `read`), then publish with it as `url` to update the same page.
   - First publish: record the link with `doc-save.py <store>/<slug> --url <link>`.
