@@ -49,7 +49,7 @@ The page is one self-contained HTML file with inline CSS and light and dark them
 ## 4. Publish and reply
 
 - Write the page to a scratch file (the session's scratchpad, else a temp folder): file tools treat `.claude/` as sensitive. Save it with `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/doc-save.py <store>/<slug> <scratch file>`. The script refuses a page that isn't whole, or Mermaid diagrams without their script; fix the page and save again. It prints the link on record (`doc.url: …`).
-- **Artifact tool available:** publish the scratch file you just saved (same content as `doc.html`) as a private page.
+- **Artifact tool available:** publish the scratch file as a private page, only after `doc-save.py` saved it and unchanged since (so it matches `doc.html`).
   - A link is on record: read that artifact first (Artifact `read`), then publish with it as `url` to update the same page.
   - First publish: record the link with `doc-save.py <store>/<slug> --url <link>`.
 - **No Artifact tool, or publishing declined:** give the path of `doc.html` to open in a browser.
