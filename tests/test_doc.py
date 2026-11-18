@@ -59,10 +59,17 @@ class DocSave(Base):
             ("class=\"mermaid\" as text is no diagram", '<html><p>use class="mermaid" on a pre</p></html>', True),
             ("an unquoted class", '<html><pre class=mermaid>graph TD; A-->B</pre></html>', False),
             ("an uppercase CLASS", '<html><pre CLASS="x mermaid">graph TD; A-->B</pre></html>', False),
+            ("a static import in a classic script", '<html>' + pre + '<script>import mermaid from "' + esm + '"'
+             '</script></html>', False),
+            ("a template-literal dynamic import", '<html>' + pre + '<script>import(`' + esm + '`)</script></html>', True),
+            ("a JSON block is no script", '<html>' + pre + '<script type="application/json">{"a": "import \\"' + esm
+             + '\\""}</script></html>', False),
+            ("import.meta then a string", '<html>' + pre + '<script type="module">const u = import.meta.url;\n'
+             'fetch("mermaid.json")</script></html>', False),
         ]
-        for name, page, saved in cases:
+        for i, (name, page, saved) in enumerate(cases):
             with self.subTest(name):
-                goal = self.new_goal(slug="m" + str(cases.index((name, page, saved))))
+                goal = self.new_goal(slug="m" + str(i))
                 out = self.run_s("doc-save.py", goal, self.page(page), ok=saved)
                 self.assertEqual(os.path.exists(os.path.join(goal, "doc.html")), saved, out)
                 if not saved:
@@ -71,7 +78,7 @@ class DocSave(Base):
     def test_a_blank_link_is_refused(self):
         goal = self.new_goal()
         out = self.run_s("doc-save.py", goal, self.page("<html>hi</html>"), "--url", "  ", ok=False)
-        self.assertIn("'' is not a link", out)
+        self.assertIn("'  ' is not a link", out)
         self.assertFalse(os.path.exists(os.path.join(goal, "doc.html")))
         self.assertFalse(os.path.exists(os.path.join(goal, "doc.url")))
 

@@ -20,9 +20,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402
 
 
-# An import whose quoted module specifier names Mermaid: static `import … from "…mermaid…"` or
-# dynamic `import("…mermaid…")`. It stops at the first quote, so a comment is never a specifier.
-IMPORT = re.compile(r"\bimport\b[^'\"]*['\"][^'\"]*mermaid", re.I)
+# An import whose module specifier names Mermaid. Static `import … from "…mermaid…"` works only in
+# a module script; dynamic `import("…mermaid…")` works in any script.
+STATIC = re.compile(r"\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?['\"`][^'\"`]*mermaid", re.I)
+DYNAMIC = re.compile(r"\bimport\s*\(\s*['\"`][^'\"`]*mermaid", re.I)
+JS_TYPES = ("", "text/javascript", "application/javascript", "module")
 
 
 class MermaidScan(HTMLParser):
@@ -32,25 +34,29 @@ class MermaidScan(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.diagrams = False
         self.loader = False
-        self.script = None  # text of the <script> being read, or None outside one
+        self.script = None  # (is a module, text) of the JS <script> being read, else None
 
     def handle_starttag(self, tag, attrs):
         for name, value in attrs:
             if name == "class" and value and "mermaid" in value.split():
                 self.diagrams = True
         if tag == "script":
-            src = dict(attrs).get("src") or ""
-            if "mermaid" in src.lower():
-                self.loader = True
-            self.script = []
+            a = dict(attrs)
+            kind = (a.get("type") or "").strip().lower()
+            if a.get("src"):  # the browser ignores a src script's own text
+                self.loader = self.loader or "mermaid" in a["src"].lower()
+            elif kind in JS_TYPES:
+                self.script = (kind == "module", [])
 
     def handle_data(self, data):
         if self.script is not None:
-            self.script.append(data)
+            self.script[1].append(data)
 
     def handle_endtag(self, tag):
         if tag == "script" and self.script is not None:
-            if IMPORT.search("".join(self.script)):
+            module, text = self.script
+            text = "".join(text)
+            if DYNAMIC.search(text) or (module and STATIC.search(text)):
                 self.loader = True
             self.script = None
 
@@ -74,7 +80,8 @@ def main():
         i = args.index("--url")
         if i + 1 >= len(args):
             sys.exit(__doc__)
-        url = args[i + 1].strip()
+        raw = args[i + 1]
+        url = raw.strip()
         del args[i:i + 2]
     if not args or len(args) > 2:
         sys.exit(__doc__)
@@ -82,7 +89,7 @@ def main():
     if not os.path.isfile(os.path.join(goal, "plan.md")):
         sys.exit(f"REFUSED: {goal} is not a goal folder (no plan.md)")
     if url is not None and not re.match(r"https?://\S+$", url):
-        sys.exit(f"REFUSED: {url!r} is not a link")
+        sys.exit(f"REFUSED: {raw!r} is not a link")
     if len(args) == 2:
         try:
             with open(args[1], encoding="utf-8") as f:
