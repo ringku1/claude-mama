@@ -6,9 +6,12 @@ Write every line with scripts/log.py (it adds the ID and real time, and a `-- YY
   D<n>  HH:MM decision | <question or Q-ref> | <choice> | why: ... | evidence: <file:line | cmd | source> | tag: verified|inferred|assumed|user
   D<n>  HH:MM supersedes D<m> | <new choice> | why: ...
   F<n>  HH:MM finding | <claim> | <file:line | source>      (a case to handle: F<n> HH:MM case: <branch> — <handled how | unknown>)
-  E<n>  HH:MM <type> <step?> <text>
+  E<n>  HH:MM <type> <step?> <text>      (step.py writes the per-step ones: `<status> S<n> — <text> · commit <sha>`)
+  U<n>  HH:MM <plain text for the user>  (an overview Timeline row; no IDs)
+  D<n>  HH:MM hunt: deliver with known issues | extra round … | tag: user   (after a hunt round at the tier's cap with real bugs)
+  F<n>  HH:MM trade-off: <finding that reverses an earlier round's decision> (not counted as a real bug)
 
-Event types: start, research: <n> findings, <m> cases, <k> open (or research none: <why>), db: agreed <n> changes | none — <why> (before the playback), expectations: <n> settled, <m> asked, playback: confirmed | corrected <n>, hunt <k>: <n> found, <r> real, <x> fixed, <m> minor — /code-review <level> … (once per round; or hunt none: <why>), budget set <old> → <new> (plan-set logs it), ask, answer, plan, approve, checkpoint, dispatch, pass, fail, fix, block, unblock,
+Event types: start, research: <n> findings, <m> cases, <k> open (or research none: <why>), db: agreed <n> changes | none — <why> (before the playback), expectations: <n> settled, <m> asked, playback: confirmed | corrected <n>, hunt <k>: <n> found, <r> real, <x> fixed, <m> minor[, <t> trade-off] — /code-review <level> … (once per round; or hunt none: <why>), budget set <old> → <new> (plan-set logs it), budget auto-raised to <size> (the Stop hook logs it as a D line, tag: auto), ask, answer, plan, approve, checkpoint, dispatch, pass, fail, fix, block, unblock,
 wait <what> (ending the turn on background work), learn <what|none>, commit <hash>, merge-base, conflict, pushed <sha> to <branch or PR>, pr <url>, trello, change, park, pause, waiting / resume (plan-set logs both on status changes), compaction (the PreCompact hook logs it), done.
 Change example: E9 11:02 change goal: added sorting → +S7,S8; S4 obsolete; D3 revisit
 Decisions in force: grep '^D' and drop any superseded.
