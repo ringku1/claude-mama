@@ -2,33 +2,16 @@
 # Run a mama script with the first Python 3.8+ found — python3, python, then `py -3`.
 # Windows (Git Bash) often has no python3, or only the Microsoft Store stub, which is skipped.
 #   bash scripts/py scripts/log.py <args...>      exit code is the script's own
-# Python starts once per call: the bootstrap below (parseable by Python 2 too) exits 119 on a
-# Python older than 3.8, so the next candidate is tried; otherwise it runs the script (or
-# `-c <code>`) as __main__ with the usual sys.argv and sys.path[0].
-boot='import sys
-if sys.version_info < (3, 8):
-    sys.exit(119)
-import os, runpy
-args = sys.argv[1:]
-if not args:
-    sys.exit("usage: py <script> [args...] | py -c <code> [args...]")
-if args[0] == "-c":
-    sys.argv = ["-c"] + args[2:]
-    sys.path[0] = ""
-    g = {"__name__": "__main__", "__builtins__": __builtins__}
-    exec(compile(args[1] if len(args) > 1 else "", "<string>", "exec"), g)
-else:
-    sys.argv = args
-    sys.path[0] = os.path.dirname(os.path.abspath(args[0]))
-    runpy.run_path(args[0], run_name="__main__")'
+ok='import sys; sys.exit(sys.version_info < (3, 8))'
 for cand in python3 python "py -3"; do
   exe=${cand%% *}
   path=$(command -v "$exe" 2>/dev/null) || continue
   case "$path" in *[Ww]indows[Aa]pps*) continue ;; esac
   # shellcheck disable=SC2086
-  $cand -c "$boot" "$@"
-  rc=$?
-  [ "$rc" -eq 119 ] || exit "$rc"
+  if $cand -c "$ok" >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    exec $cand "$@"
+  fi
 done
 echo "mama: needs Python 3.8+ (python3, python or py -3) on PATH" >&2
 exit 127
