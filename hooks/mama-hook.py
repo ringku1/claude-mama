@@ -9,10 +9,10 @@ no goal — the hooks never read transcripts to guess ownership.
 
 - MAMA_VIA=<plugin root> (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
                 mama@skills-dir, and a marketplace install may sit beside the one-liner, so each hook can be
-                registered twice; when <claude folder>/settings.json runs, for this same event, a mama-hook.py
-                whose script and interpreter exist (paths read as the shell would, exec form as written), this plugin copy exits at
-                once and leaves the work to that one. A stale entry (script or interpreter gone), or one under
-                another event, never silences the plugin.
+                registered twice; when <claude folder>/settings.json holds, for this same event, install.py's
+                exec-form entry exactly (interpreter and mama-hook.py both existing files, args [script, mode]),
+                this plugin copy exits at once and leaves the work to that one. Anything else (a command string,
+                a hand edit, a stale entry) runs the plugin: a double run is the accepted worst case.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - every mode:   at most once a day starts scripts/self-update.py in the background (git installs;
@@ -30,7 +30,8 @@ no goal — the hooks never read transcripts to guess ownership.
                 overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
                 or says `done` while close-check.py fails. The same problem list blocks only once
-                (kept in the goal's .last-block); a changed list blocks again.
+                (kept in the goal's .last-block); a changed list blocks again (a deadline-cut run's partial
+                list only for a problem the last block didn't name, and it is never kept).
                 Claude Code kills the hook at 10s, counted from before bash, the launcher's Python probe and
                 the imports: all its work shares one deadline (HOOK_BUDGET from this file's first statement,
                 the rest kept for that start-up and for work past the deadline); a done goal's close check runs before the hook's own measure; a measure cut by the
@@ -79,119 +80,34 @@ def claude_dir():
     return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
 
 
-HOOK_SCRIPT = re.compile(r"(?:^|[\\/])mama-hook\.py$")  # the file name is exactly mama-hook.py
-VAR = re.compile(r"\$(?:\{(\w+)\}|(\w+))")  # $VAR / ${VAR}
-ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")  # NAME=value before a command
-OPTION_VALUE = re.compile(r"-*\w[\w-]*=")  # --script=… / name=…: the value after it
-
-
-def _shell_commands(text):
-    """A command string's simple commands, each a list of words, each word a list of (quote, text) segments
-    (quote '' bare, '"' or "'"). ; & | ( ) end a command, < > a word. Backslashes stay as written (Windows
-    paths); no escapes, globs or substitutions — only what a mama hook entry plausibly contains."""
-    cmds, words, word, i = [], [], [], 0
-
-    def end_word():
-        if word:
-            words.append(word[:])
-            word.clear()
-
-    while i < len(text):
-        c = text[i]
-        if c in "\"'":
-            j = text.find(c, i + 1)
-            j = len(text) if j < 0 else j
-            word.append((c, text[i + 1:j]))
-            i = j + 1
-            continue
-        if c.isspace() or c in "<>":
-            end_word()
-        elif c in ";&|()":
-            end_word()
-            if words:
-                cmds.append(words[:])
-                words.clear()
-        elif word and word[-1][0] == "":
-            word[-1] = ("", word[-1][1] + c)
-        else:
-            word.append(("", c))
-        i += 1
-    end_word()
-    if words:
-        cmds.append(words)
-    return cmds
-
-
-def _shell_word(segments):
-    """A word as the shell (bash, which runs hook commands) passes it on: a leading unquoted ~ (its prefix up to
-    the first slash all unquoted) is the home folder; $VAR/${VAR} expand bare or in double quotes (unset: empty),
-    never in single quotes. %VAR% stays literal: bash never expands it."""
-    def subst(t):
-        return VAR.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), t)
-
-    out = []
-    for n, (q, t) in enumerate(segments):
-        if n == 0 and q == "" and t.startswith("~") and ("/" in t or len(segments) == 1):
-            head, sep, rest = t.partition("/")
-            out.append(os.path.expanduser(head) + sep + subst(rest))
-        else:
-            out.append(t if q == "'" else subst(t))
-    return "".join(out)
-
-
-def settings_hook_scripts(settings, event):
-    """(interpreter, script) for each mama-hook.py settings.json's hooks[event] run. Exec form (`args` a list):
-    no shell, so `command` and each arg are used exactly as written. A `command` string: per simple command,
-    the interpreter is the first word after NAME=value assignments, scripts are any word (or an option's
-    `--x=` value) naming exactly mama-hook.py, each expanded as the shell would. Anything malformed is skipped."""
-    hooks = settings.get("hooks") if isinstance(settings, dict) else None
-    entries = hooks.get(event) if isinstance(hooks, dict) else None
-    found = []
-    for entry in (entries if isinstance(entries, list) else ()):
-        handlers = entry.get("hooks") if isinstance(entry, dict) else None
-        for h in (handlers if isinstance(handlers, list) else ()):
-            if not isinstance(h, dict) or not isinstance(h.get("command"), str):
-                continue
-            args = h.get("args")
-            if isinstance(args, list):
-                found += [(h["command"], a) for a in args if isinstance(a, str) and HOOK_SCRIPT.search(a)]
-                continue
-            for cmd in _shell_commands(h["command"]):
-                while cmd and cmd[0][0][0] == "" and ASSIGNMENT.match(cmd[0][0][1]):
-                    cmd = cmd[1:]
-                words = [_shell_word(w) for w in cmd]
-                for w in words:
-                    m = OPTION_VALUE.match(w)
-                    w = w[m.end():] if m else w
-                    if HOOK_SCRIPT.search(w):
-                        found.append((words[0], w))
-    return found
-
-
-def _runs(interpreter, script):
-    """The entry can run: its script exists and so does its interpreter — a path (with a separator) must be
-    a file, a bare name must be on PATH (a bash/sh wrapper counts as found; what it runs isn't checked)."""
-    if not interpreter or not os.path.isfile(script):
+def _install_entry(h, mode):
+    """h is install.py's exec-form entry for mode, and both its files exist: command the interpreter (a file,
+    not a WindowsApps stub), args exactly [<…/mama-hook.py>, mode]. Command strings are never parsed."""
+    if not isinstance(h, dict):
         return False
-    if "/" in interpreter or "\\" in interpreter or os.sep in interpreter:
-        return os.path.isfile(interpreter)
-    import shutil  # only here: most runs never get this far
-    return shutil.which(interpreter) is not None
+    cmd, args = h.get("command"), h.get("args")
+    if not (isinstance(cmd, str) and isinstance(args, list) and len(args) == 2 and args[1] == mode
+            and isinstance(args[0], str)):
+        return False
+    parts = cmd.replace("\\", "/").lower().split("/")
+    return ("windowsapps" not in parts and os.path.isfile(cmd)
+            and args[0].replace("\\", "/").split("/")[-1] == "mama-hook.py" and os.path.isfile(args[0]))
 
 
 def step_aside(mode):
-    """This is a plugin copy (MAMA_VIA = its plugin root, set by hooks.json) and settings.json already runs,
-    for this mode's event, a mama-hook.py that can run (the one-liner): running both would do the work twice.
-    A stale entry (script or interpreter gone), one under another event, or an unreadable or invalid
-    settings.json counts as no: the plugin copy then runs."""
+    """This is a plugin copy (MAMA_VIA = its plugin root, set by hooks.json) and settings.json runs, for this
+    mode's event, the one-liner's entry exactly as install.py writes it: running both would do the work twice.
+    Anything else (a command string, a hand edit, a stale entry, unreadable settings) runs the plugin copy:
+    a double run is the accepted worst case."""
     if not os.environ.get("MAMA_VIA") or mode not in EVENTS:
         return False
     try:
         with open(os.path.join(claude_dir(), "settings.json"), encoding="utf-8") as f:
             settings = json.load(f)
-    except (OSError, ValueError):
+        entries = settings["hooks"][EVENTS[mode]]
+        return any(_install_entry(h, mode) for e in entries for h in e["hooks"])
+    except Exception:
         return False
-    return any(_runs(i, p) for i, p in settings_hook_scripts(settings, EVENTS[mode]))
 
 
 def main_checkout(cwd):
@@ -419,15 +335,21 @@ def drop_closed_caches(inp, earlier):
             pass
 
 
-def block_once(goal_dir, reason):
-    """Print the block unless it repeats the last block for this goal word for word."""
+def block_once(goal_dir, reason, problems, cut):
+    """Print the block unless it repeats the last block for this goal word for word. A cut run's list is
+    partial: it blocks only for a problem the last block didn't name, and is never remembered."""
     last = os.path.join(goal_dir, ".last-block")
     try:
         with open(last, encoding="utf-8") as f:
-            if f.read() == reason:
-                return
+            before = f.read()
     except OSError:
-        pass
+        before = ""
+    if cut:
+        if any(f"\n- {p}\n- " not in before + "\n- " for p in problems):
+            print(json.dumps({"decision": "block", "reason": reason}), flush=True)
+        return
+    if before == reason:
+        return
     print(json.dumps({"decision": "block", "reason": reason}), flush=True)  # out before any later kill
     try:
         fileio.write_atomic(last, reason)
@@ -514,7 +436,7 @@ def stop(inp, g):
     elif close_out:
         problems.append("Status is done but the close checklist fails:\n" + close_out)
     if problems:
-        block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems))
+        block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems), problems, cut)
     elif not cut:  # a cut run doesn't know the list is empty: the last block stays remembered
         try:
             os.remove(os.path.join(g["dir"], ".last-block"))
