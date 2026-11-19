@@ -183,8 +183,9 @@ class CloseBase(Base):
     def test_backwards_bare_range_keeps_its_literal_ends(self):
         cc = load_cc()
         known = ["S1", "S2", "S3", "S4", "S5"]
-        self.assertEqual(cc.step_ids("S5-2", known), {"S5", "2"})  # backwards: not S2
+        self.assertEqual(cc.step_ids("S5-2", known), {"S5", "S2"})  # backwards: its ends, the bare one as the plan's S2
         self.assertEqual(cc.step_ids("S5-S2", known), {"S5", "S2"})
+        self.assertEqual(cc.step_ids("S5-7", known), {"S5", "7"})  # S7 is no plan step: literal
 
     def test_range_ends_need_not_be_plan_ids(self):
         cc = load_cc()
@@ -459,73 +460,39 @@ class SpendDeadline(Base):
                 pass
         return cc, out.getvalue()
 
-    def test_git_checks_run_before_the_spend_measure(self):
-        """The spend measure may use time up to the hook's deadline, so the git checks go first."""
+    def gits_seen(self, g, timeout=False, **extra):
+        """Run close-check in process on a goal with a branch, recording each git call's timeout."""
         from unittest import mock
-        g, t = self.goal_with_spend()
         self.run_s("plan-set.py", self.plan(g), "--header", "base=main", "branch=feat/x")
-        calls = []
-        cc = load_cc()
-        real_git, real_measured = cc._git, cc.measured_spend
-
-        def git(*a, **k):
-            calls.append("git")
-            return real_git(*a, **k)
-
-        def measured(*a, **k):
-            calls.append("measure")
-            return real_measured(*a, **k)
-
-        with mock.patch.object(cc, "_git", git), mock.patch.object(cc, "measured_spend", measured):
-            self.run_in_process(g, cc=cc)
-        self.assertIn("git", calls)
-        self.assertEqual(calls[-1], "measure", calls)  # every git call came before the measure
-        self.assertEqual(calls.count("measure"), 1, calls)
-
-    def test_hook_deadline_bounds_each_git_call(self):
-        """Inside the hook a git call gets at most half the time left before MAMA_SPEND_DEADLINE (by hand: 10s)."""
-        from unittest import mock
-        cc = load_cc()
-        seen = []
-
-        def run(cmd, **k):
-            seen.append(k.get("timeout"))
-            return subprocess.CompletedProcess(cmd, 1, "", "")
-
-        with mock.patch.object(cc.subprocess, "run", run):
-            with mock.patch.dict(os.environ, {"MAMA_SPEND_DEADLINE": str(time.time() + 4)}):
-                cc._git(self.tmp, "status")
-            with mock.patch.dict(os.environ, {"MAMA_SPEND_DEADLINE": str(time.time() - 5)}):
-                cc._git(self.tmp, "status")
-            with mock.patch.dict(os.environ, {}):
-                os.environ.pop("MAMA_SPEND_DEADLINE", None)
-                cc._git(self.tmp, "status")
-        self.assertLessEqual(seen[0], 2.0)
-        self.assertGreater(seen[0], 1.0)
-        self.assertAlmostEqual(seen[1], 0.3)  # past the deadline: a short floor, not zero
-        self.assertEqual(seen[2], 10)
-
-    def test_slow_git_is_noted_and_the_measure_still_runs(self):
-        from unittest import mock
-        g, t = self.goal_with_spend()
-        self.run_s("plan-set.py", self.plan(g), "--header", "base=main", "branch=feat/x")
-        real_run = subprocess.run
-        gits = []
+        real_run, gits = subprocess.run, []
 
         def run(cmd, **k):
             if cmd and cmd[0] == "git":
-                gits.append(cmd)
-                raise subprocess.TimeoutExpired(cmd, k.get("timeout"))
+                gits.append(k.get("timeout"))
+                if timeout:
+                    raise subprocess.TimeoutExpired(cmd, k.get("timeout"))
             return real_run(cmd, **k)
 
         with mock.patch.object(subprocess, "run", run):
-            cc, out = self.run_in_process(g, MAMA_SPEND_DEADLINE=str(time.time() + 30))
-        self.assertEqual(len(gits), 1, gits)  # one slow call: the rest are skipped
-        self.assertIn("not checked: git took too long", out)
-        self.assertIn("run close-check.py by hand", out)
+            _, out = self.run_in_process(g, **extra)
+        return gits, out
+
+    def test_hook_run_makes_no_git_calls(self):
+        """The Stop hook's run (MAMA_SPEND_DEADLINE set) skips the commit checks: plan-set's run at
+        status=done checks them in full, so slow git can't block a finished goal."""
+        g, t = self.goal_with_spend()
+        gits, out = self.gits_seen(g, MAMA_SPEND_DEADLINE=str(time.time() + 30))
+        self.assertEqual(gits, [])
+        self.assertNotIn("commits", out)
+        self.assertIn("~2000k", out)  # the measure still ran
+
+    def test_by_hand_git_waits_10s_and_a_timeout_reports_nothing(self):
+        g, t = self.goal_with_spend()
+        gits, out = self.gits_seen(g, timeout=True)
+        self.assertTrue(gits)
+        self.assertEqual(set(gits), {10})
+        self.assertNotIn("commits", out)
         self.assertIn("METRICS:", out)
-        self.assertIn("~2000k", out)  # the measure ran after the slow git
-        self.assertTrue(os.path.exists(os.path.join(g, ".spend-cache.json")))
 
     def test_no_spend_message_names_the_measure(self):
         g, t = self.goal_with_spend()

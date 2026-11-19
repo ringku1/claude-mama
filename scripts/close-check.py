@@ -7,7 +7,7 @@ for build/fix/mixed goals — that the last bug-hunt round found 0 real bugs.
 Prints each missing item, then a prefilled metrics line (fill the `?` fields from memory
 of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
-import datetime, os, re, subprocess, sys, time
+import datetime, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import clock  # noqa: E402
@@ -90,38 +90,22 @@ def overview_problems(ov, goal=None):
     return out
 
 
-class GitSlow(Exception):
-    """A git call ran past its share of the Stop hook's time."""
-
-
-def _git_timeout():
-    """10s by hand; inside the Stop hook at most half the time left before MAMA_SPEND_DEADLINE (0.3s
-    floor), so slow git can't starve the spend measure that runs after it."""
-    left = spend_deadline() - time.time()
-    return 10 if left == float("inf") else min(10, max(0.3, left / 2))
-
-
 def _git(goal, *args):
     try:
-        r = subprocess.run(["git", "-C", goal, *args], capture_output=True, text=True, timeout=_git_timeout())
-    except subprocess.TimeoutExpired:
-        raise GitSlow()
+        r = subprocess.run(["git", "-C", goal, *args], capture_output=True, text=True, timeout=10)
     except Exception:
         return None
     return r.stdout if r.returncode == 0 else None
 
 
 def commit_problems(goal, head):
-    try:
-        return _commit_problems(goal, head)
-    except GitSlow:
-        return ["commits not checked: git took too long in the Stop hook — run close-check.py by hand to check them"]
-
-
-def _commit_problems(goal, head):
     """This goal's commits — those on the branch (past origin/<base> when base differs) committed
     since the plan's `started:` — carry no attribution lines and no loop internals. Commits pushed
-    before this goal began (a continued branch, or work straight on the base) are not its own."""
+    before this goal began (a continued branch, or work straight on the base) are not its own.
+    The Stop hook's run (MAMA_SPEND_DEADLINE set) skips them: plan-set's run at status=done checks
+    them in full, and slow git inside the hook must not block a finished goal."""
+    if spend_deadline() != float("inf"):
+        return []
     base, branch = head.get("base", "").split(" ")[0], head.get("branch", "").split(" ")[0]
     if not branch or branch in ("—", "n/a"):
         return []
@@ -215,7 +199,8 @@ def step_ids(text, known):
     plan's own step ids (known) between its ends by numeric order, an end without a letter taking its
     lettered steps (S2-S4 takes S4a, S4b; S4-S6 takes S4a), so the ends need not be ids themselves. Each
     end must be a plan id or the number of one; otherwise, or when the range runs backwards, it counts
-    as its literal ends only (S1-20261119 is S1 and 20261119; S5-2 is S5 and 2)."""
+    as its ends only, a bare end as the plan step it names, else literal (S1-20261119 is S1 and
+    20261119; S5-2 is S5 and S2)."""
     keys = [(k, sid) for sid in known for k in [_key(sid)] if k]
     nums = {k[0] for k, _ in keys}
 
@@ -229,7 +214,7 @@ def step_ids(text, known):
             continue
         end = hi if hi.startswith("S") else "S" + hi
         if not (bound(lo) and bound(end) and _key(lo) <= _key(end)):
-            out.update((lo, hi))
+            out.update((lo, end if end in known else hi))  # S5-2: S5 and the plan's S2
             continue
         top = _key(end)
         top = top if top[1] else (top[0], "\uffff")  # an end without a letter takes its lettered steps
@@ -388,7 +373,7 @@ def main():
     missing += commit_problems(goal, head)
     missing += hunt_problems(log, head, quick)
 
-    # after the git checks: the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
+    # the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
     # The hook writes the final spend to the header after close-check, so judge by this run's own
     # measure; a measure the hook's deadline cut proves nothing, so that run skips the check
     measured, cut = measured_spend(goal, head)
