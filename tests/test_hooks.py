@@ -167,6 +167,12 @@ class Stop(HookBase):
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "agent back")
         self.assertIn("still marked running", json.loads(self.hook("stop"))["reason"])  # came back: blocks again
 
+    def test_unwritable_last_block_still_blocks_and_exits_cleanly(self):
+        g = self.running_goal()
+        os.makedirs(os.path.join(g, ".last-block"))  # can't be read or replaced
+        self.assertIn("still marked running", json.loads(self.hook("stop"))["reason"])
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
+
     def test_quick_goal_has_no_learn_nag(self):
         g = self.run_s("new-goal.py", self.store, "q", "fix", "t", "--quick").splitlines()[0]
         self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")
@@ -235,9 +241,9 @@ class Stop(HookBase):
 
 
 class OnceOnly(HookBase):
-    """The one-liner's skills/mama also loads as plugin mama@skills-dir: its hooks.json copy (MAMA_VIA = the
-    plugin root) steps aside only when that root is <claude folder>/skills/mama and settings.json already runs
-    mama-hook.py. A marketplace install (another root) always runs, stale settings entry or not."""
+    """The one-liner's skills/mama also loads as plugin mama@skills-dir, and a marketplace install may sit beside
+    the one-liner: a plugin-launched copy (MAMA_VIA set) steps aside whenever settings.json registers a
+    mama-hook.py whose script exists on disk. A stale entry (its script gone) never silences the plugin."""
 
     def settings(self, text, base=None):
         d = base or os.path.join(self.home, ".claude")
@@ -248,13 +254,22 @@ class OnceOnly(HookBase):
     def skills_dir(self, base=None):
         return os.path.join(base or os.path.join(self.home, ".claude"), "skills", "mama")
 
-    ONE_LINER = json.dumps({"hooks": {"PreCompact": [{"hooks": [
-        {"type": "command", "command": "/usr/bin/python3", "args": ["/h/.claude/skills/mama/hooks/mama-hook.py", "precompact"]}]}]}})
+    def one_liner(self, script=None, base=None):
+        """settings.json as install.py writes it, running script (default: a real file under skills/mama)."""
+        if script is None:
+            script = os.path.join(self.skills_dir(base), "hooks", "mama-hook.py")
+            os.makedirs(os.path.dirname(script), exist_ok=True)
+            open(script, "w").close()
+        return json.dumps({"hooks": {"PreCompact": [{"hooks": [
+            {"type": "command", "command": sys.executable, "args": [script, "precompact"]}]}]}})
+
+    def market(self):
+        return os.path.join(self.home, ".claude", "plugins", "cache", "mama", "mama", "1.0.0")
 
     def test_plugin_copy_steps_aside_for_settings_hooks(self):
         g = self.running_goal()
         log = os.path.join(g, "log.md")
-        self.settings(self.ONE_LINER)
+        self.settings(self.one_liner())
         before = self.read(log)
         self.assertEqual(self.hook("precompact", MAMA_VIA=self.skills_dir()), "")
         self.assertEqual(self.read(log), before)  # no work: no `E compaction` line
@@ -262,12 +277,47 @@ class OnceOnly(HookBase):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
         self.assertIn("keep: the slug 'demo'", self.hook("precompact"))  # the settings.json hook itself runs
 
-    def test_marketplace_install_runs_despite_a_stale_settings_entry(self):
+    def test_marketplace_install_steps_aside_for_a_live_one_liner(self):
         self.running_goal()
-        self.settings(self.ONE_LINER)
-        market = os.path.join(self.home, ".claude", "plugins", "cache", "mama", "mama", "1.0.0")
-        for via in (market, "plugin", ""):
+        self.settings(self.one_liner())
+        for via in (self.market(), "plugin"):
+            self.assertEqual(self.hook("precompact", MAMA_VIA=via), "", via)
+        self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=""))  # not plugin-launched
+
+    def test_stale_settings_entry_never_silences_the_plugin(self):
+        self.running_goal()
+        gone = os.path.join(self.tmp, "gone", "skills", "mama", "hooks", "mama-hook.py")
+        self.settings(self.one_liner(gone))
+        for via in (self.market(), self.skills_dir(), ""):
             self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=via), via)
+
+    def test_command_string_forms(self):
+        self.running_goal()
+        script = os.path.join(self.tmp, "with space", "mama", "hooks", "mama-hook.py")
+        os.makedirs(os.path.dirname(script))
+        open(script, "w").close()
+        for cmd in (f'/usr/bin/python3 "{script}" precompact', f"python3 '{script}' precompact"):
+            self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
+            self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "", cmd)
+        bare = os.path.join(self.tmp, "bare", "hooks", "mama-hook.py")
+        os.makedirs(os.path.dirname(bare))
+        open(bare, "w").close()
+        self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": f"py -3 {bare} stop"}]}]}}))
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "")
+
+    def test_parses_windows_and_quoted_paths(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mama_hook_t", HOOK)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        win = r"C:\Users\a b\.claude\skills\mama\hooks\mama-hook.py"
+        cfg = {"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": f'"C:\\Python38\\python.exe" "{win}" stop'},
+            {"type": "command", "command": r"C:\py.exe C:\m\hooks\mama-hook.py stop"},
+            {"type": "command", "command": "C:\\py.exe", "args": [win, "stop"]},
+            {"type": "command", "command": "echo unrelated"}]}], "Bad": 3, "Worse": [1, {"hooks": 2}]}}
+        self.assertEqual(m.settings_hook_scripts(cfg), [win, r"C:\m\hooks\mama-hook.py", win])
+        self.assertEqual(m.settings_hook_scripts([1]), [])
 
     def test_plugin_copy_runs_without_settings_hooks(self):
         self.running_goal()
@@ -280,14 +330,20 @@ class OnceOnly(HookBase):
     def test_reads_claude_config_dir_settings(self):
         self.running_goal()
         cfg = os.path.join(self.tmp, "cfg")
-        self.settings(self.ONE_LINER, base=cfg)
+        self.settings(self.one_liner(base=cfg), base=cfg)
         self.assertEqual(self.hook("precompact", MAMA_VIA=self.skills_dir(cfg), CLAUDE_CONFIG_DIR=cfg), "")
-        self.assertIn("keep: the slug 'demo'",  # ~/.claude/skills/mama is not the config folder's skill then
-                      self.hook("precompact", MAMA_VIA=self.skills_dir(), CLAUDE_CONFIG_DIR=cfg))
-        self.settings(self.ONE_LINER)  # ~/.claude is not the config folder then
-        none = os.path.join(self.tmp, "none")
+        none = os.path.join(self.tmp, "none")  # ~/.claude's settings.json is not the config folder's then
+        self.settings(self.one_liner())
         self.assertIn("keep: the slug 'demo'",
                       self.hook("precompact", MAMA_VIA=self.skills_dir(none), CLAUDE_CONFIG_DIR=none))
+
+    def test_step_aside_check_is_inside_the_error_guard(self):
+        import ast
+        tree = ast.parse(self.read(HOOK))
+        [main] = [n for n in tree.body if isinstance(n, ast.If) and "__main__" in ast.dump(n.test)]
+        outside = [n for n in main.body if not isinstance(n, ast.Try)]
+        self.assertNotIn("step_aside", "".join(ast.dump(n) for n in outside))
+        self.assertIn("step_aside", "".join(ast.dump(n) for n in main.body if isinstance(n, ast.Try)))
 
 
 class Lean(HookBase):
@@ -420,8 +476,8 @@ class Lean(HookBase):
             self.spend(g, 1000)
         hook = self.skill_with_close_check("sys.exit(0)")
         src = self.read(hook)
-        self.assertIn("HOOK_BUDGET = 7.0", src)
-        open(hook, "w", encoding="utf-8").write(src.replace("HOOK_BUDGET = 7.0", "HOOK_BUDGET = -1.0", 1))  # always past
+        self.assertIn("HOOK_BUDGET = 5.0", src)
+        open(hook, "w", encoding="utf-8").write(src.replace("HOOK_BUDGET = 5.0", "HOOK_BUDGET = -1.0", 1))  # always past
         self.hook("stop", hook=hook)
         self.assertTrue(os.path.exists(cache))  # cut short: kept for the next Stop
         for _ in range(10):
@@ -470,6 +526,29 @@ class HookDeadline(HookBase):
         ds = [float(l) for l in self.read(rec).split()] if os.path.exists(rec) else []
         self.assertTrue(ds and len(set(ds)) == 1, ds)  # one deadline for all (the rest skipped once it passed)
         self.assertLess(ds[0], t + 8.5)
+
+    def test_clock_starts_before_any_import(self):
+        import ast
+        body = ast.parse(self.read(HOOK)).body
+        if isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant):
+            body = body[1:]  # the docstring
+        self.assertEqual(ast.dump(body[0]), ast.dump(ast.parse("import time").body[0]))
+        first = ast.unparse(body[1]) if hasattr(ast, "unparse") else ""
+        if first:
+            self.assertRegex(first, r"^\w+ = time\.time\(\)")
+        budget = re.search(r"^HOOK_BUDGET = ([\d.]+)", self.read(HOOK), re.M)
+        self.assertTrue(budget and float(budget.group(1)) <= 5.0, budget)
+
+    def test_deadline_is_budget_from_the_hook_start(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        rec = os.path.join(self.tmp, "deadlines")
+        self.stub_spend(hook, f"open({rec!r}, 'a').write(repr(deadline) + chr(10))\nreturn None")
+        self.running_goal()
+        t = time.time()
+        self.hook("stop", hook=hook)
+        ds = [float(l) for l in self.read(rec).split()]
+        self.assertTrue(ds, ds)
+        self.assertLess(ds[0], t + 5.5)  # 5s from the file's first statement, process start included
 
     def test_partial_spend_is_not_written_or_judged(self):
         hook = self.skill_with_close_check("sys.exit(0)")

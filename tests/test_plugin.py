@@ -86,26 +86,29 @@ class Manifests(unittest.TestCase):
 
     @unittest.skipUnless(BASH, "needs bash")
     def test_plugin_copy_steps_aside_for_the_one_liner_hooks(self):
-        # the one-liner's skills/mama is also loaded as plugin mama@skills-dir: its hooks.json copy must not
-        # run each hook a second time. Bad stdin makes a hook that runs log an error; one that steps aside can't.
+        # the one-liner's skills/mama also loads as plugin mama@skills-dir, and a marketplace install may sit beside
+        # the one-liner: its hooks.json copy must not run each hook a second time while settings.json runs a
+        # mama-hook.py that exists. Bad stdin makes a hook that runs log an error; one that steps aside can't.
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, True)
         errors = os.path.join(tmp, ".claude", "mama", "hook-errors.log")
-        os.makedirs(os.path.join(tmp, ".claude", "skills"))
-        with open(os.path.join(tmp, ".claude", "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/bin/python3",
-                                                      "args": ["/x/skills/mama/hooks/mama-hook.py", "stop"]}]}]}}, f)
-        # a marketplace install (its root is not ~/.claude/skills/mama) with a stale one-liner entry: it runs
+        script = os.path.join(tmp, ".claude", "skills", "mama", "hooks", "mama-hook.py")
+
+        def settings():
+            with open(os.path.join(tmp, ".claude", "settings.json"), "w", encoding="utf-8") as f:
+                json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/bin/python3",
+                                                          "args": [script, "stop"]}]}]}}, f)
+
+        os.makedirs(os.path.join(tmp, ".claude"))
+        settings()  # a stale one-liner entry (its script is gone): the plugin runs
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertTrue(os.path.exists(errors))
         os.remove(errors)
-        try:
-            os.symlink(SKILL, os.path.join(tmp, ".claude", "skills", "mama"))  # the one-liner's link
-        except (OSError, NotImplementedError):
-            self.skipTest("no symlinks")
+        os.makedirs(os.path.dirname(script))
+        open(script, "w").close()  # the one-liner is installed: this plugin (another root) steps aside
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertFalse(os.path.exists(errors))
-        os.remove(os.path.join(tmp, ".claude", "settings.json"))  # skills/mama without the one-liner's hooks: runs
+        os.remove(os.path.join(tmp, ".claude", "settings.json"))  # no one-liner hooks: runs
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertTrue(os.path.exists(errors))
 
