@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -17,13 +18,13 @@ class HookBase(Base):
     def transcript(self, sid):
         return os.path.join(self.home, ".claude", "projects", "p", f"{sid}.jsonl")
 
-    def hook(self, mode, sid="sess-a", cwd=None, env_sid=None, path=None, raw=None):
+    def hook(self, mode, sid="sess-a", cwd=None, env_sid=None, path=None, raw=None, hook=HOOK):
         inp = raw if raw is not None else json.dumps(
             {"cwd": cwd or self.repo, "session_id": sid, "trigger": "auto", "transcript_path": self.transcript(sid)})
         env = self.env(env_sid)
         if path:
             env["PATH"] = path + os.pathsep + env.get("PATH", "")
-        r = subprocess.run([sys.executable, HOOK, mode], input=inp, capture_output=True, text=True, env=env)
+        r = subprocess.run([sys.executable, hook, mode], input=inp, capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stderr, "")
         return r.stdout
@@ -168,6 +169,60 @@ class Stop(HookBase):
         for mode in ("stop", "sessionstart", "precompact"):
             self.hook(mode)
         self.assertLess((time.time() - t) / 3, 3)
+
+    def skill_with_close_check(self, main_body):
+        """A copy of the hook and scripts whose close-check.py, run as a script, does main_body
+        (imported as a module it is the real one). Returns the copied hook's path."""
+        root = os.path.join(self.tmp, "skill")
+        shutil.copytree(os.path.join(SKILL, "hooks"), os.path.join(root, "hooks"))
+        sc = os.path.join(root, "scripts")
+        shutil.copytree(S, sc, ignore=shutil.ignore_patterns("__pycache__"))
+        os.replace(os.path.join(sc, "close-check.py"), os.path.join(sc, "close_check_real.py"))
+        with open(os.path.join(sc, "close-check.py"), "w", encoding="utf-8") as f:
+            f.write("import os, sys, time\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n"
+                    "from close_check_real import *  # noqa\n"
+                    f"if __name__ == '__main__':\n    {main_body}\n")
+        return os.path.join(root, "hooks", "mama-hook.py")
+
+    def done_goal_with_another_problem(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")  # not learned: a problem
+        s = self.read(self.plan(g)).replace("status: running", "status: done")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        os.utime(os.path.join(g, "overview.md"))
+        return g
+
+    def test_close_check_timeout_still_blocks(self):
+        hook = self.skill_with_close_check("time.sleep(30)")
+        g = self.done_goal_with_another_problem()
+        t = time.time()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertLess(time.time() - t, 8)  # under the hook's own 10s timeout
+        self.assertIn(f"close check didn't finish — run scripts/close-check.py {g}", reason)
+        self.assertIn("nothing was learned", reason)
+
+    def test_close_check_crash_still_blocks(self):
+        hook = self.skill_with_close_check("raise RuntimeError('boom')")
+        g = self.done_goal_with_another_problem()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertIn(f"close check didn't finish — run scripts/close-check.py {g}", reason)
+        self.assertIn("nothing was learned", reason)
+
+    def test_stop_and_precompact_run_no_git(self):
+        if os.name == "nt":
+            self.skipTest("shell shim")
+        self.running_goal()
+        d = os.path.join(self.tmp, "git-spy")
+        os.makedirs(d)
+        calls = os.path.join(self.tmp, "git-calls")
+        with open(os.path.join(d, "git"), "w") as f:
+            f.write(f'#!/bin/sh\necho "$@" >> {calls}\nexit 1\n')
+        os.chmod(os.path.join(d, "git"), 0o755)
+        self.assertIn("still marked running", json.loads(self.hook("stop", path=d))["reason"])
+        self.assertIn("keep: the slug 'demo'", self.hook("precompact", path=d))
+        self.assertFalse(os.path.exists(calls), "git ran in stop/precompact")
+        self.hook("sessionstart", path=d)
+        self.assertTrue(os.path.exists(calls))  # sessionstart still finds the store through git
 
 
 class Lean(HookBase):

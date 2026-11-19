@@ -32,13 +32,16 @@ import os
 import re
 import subprocess
 import sys
+import time
 
+STARTED = time.monotonic()
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 OPEN = {"planning", "approved", "running", "waiting", "paused", "blocked"}
 ERRORS = os.path.expanduser("~/.claude/mama/hook-errors.log")
 UPDATE_STAMP = os.path.expanduser("~/.claude/mama/.update-check")
 UPDATE_EVERY = 24 * 3600
+CLOSE_CHECK_BUDGET = 5.0  # seconds since the hook started; the hook itself is killed at 10s
 
 try:
     sys.path.insert(0, SCRIPTS)
@@ -172,9 +175,22 @@ def overview_stale(plan):
 
 
 def close_problems(plan):
-    r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), os.path.dirname(plan)],
-                       capture_output=True, text=True, timeout=10)
-    return "" if r.returncode == 0 else r.stdout.strip()
+    """The close checklist's failures ("" if it passes). A close check that runs out of the hook's
+    time budget, crashes or can't start is a problem itself — never a silent pass, and never an
+    error that drops the other problems."""
+    goal = os.path.dirname(plan)
+    unfinished = f"close check didn't finish — run scripts/close-check.py {goal}"
+    left = CLOSE_CHECK_BUDGET - (time.monotonic() - STARTED)
+    if left < 0.5:
+        return unfinished
+    try:
+        r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), goal],
+                           capture_output=True, text=True, timeout=left)
+    except Exception:
+        return unfinished
+    if r.returncode == 0:
+        return ""
+    return r.stdout.strip() or unfinished
 
 
 QUICK_TOKENS, QUICK_MINUTES = 300_000, 30  # past either, a quick goal has outgrown quick mode
@@ -330,7 +346,9 @@ def stop(inp, g):
             "recommendation or stated a preference run scripts/learn.py (seen/stated/contra); if none, log `E learn none`.")
     if g["status"] == "done":
         out = close_problems(g["plan"])
-        if out:
+        if out.startswith("close check didn't finish"):
+            problems.append(out)
+        elif out:
             problems.append("Status is done but the close checklist fails:\n" + out)
     if problems:
         block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems))
@@ -374,9 +392,6 @@ def main(mode):
         inp = json.load(sys.stdin)
     except ValueError:
         return
-    cwd = inp.get("cwd") or os.getcwd()
-    root = main_checkout(cwd)
-    store = activity.canon(os.path.join(root, ".claude", "mama")) if root else None
     mine = session_goals(inp)
     mine_open = [g for g in mine if g["status"] in OPEN]
     my_goal = mine_open[-1] if mine_open else None
@@ -402,6 +417,8 @@ def main(mode):
         return
 
     if mode == "sessionstart":
+        root = main_checkout(inp.get("cwd") or os.getcwd())  # git: only here, never on every Stop
+        store = activity.canon(os.path.join(root, ".claude", "mama")) if root else None
         listed = [g for g in goals(store) if g["status"] in OPEN]
         seen = {g["dir"] for g in listed}
         listed += [g for g in mine_open if g["dir"] not in seen]  # own goals in other stores
