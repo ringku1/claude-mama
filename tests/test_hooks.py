@@ -304,16 +304,56 @@ class OnceOnly(HookBase):
             self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), name)
 
     def test_expands_variables_and_home_in_script_paths(self):
+        # exec form runs no shell: command and args are used exactly as written. A command string expands
+        # $VAR/${VAR} unquoted or in double quotes, ~ only leading and unquoted; single quotes stay literal,
+        # and %VAR% is literal too (a bash-run hook never expands it)
         self.running_goal()
         self.one_liner()  # creates ~/.claude/skills/mama/hooks/mama-hook.py
         cfg = os.path.join(self.home, ".claude")
-        for script in ("$HOME/.claude/skills/mama/hooks/mama-hook.py", "~/.claude/skills/mama/hooks/mama-hook.py",
-                       "${CLAUDE_CONFIG_DIR}/skills/mama/hooks/mama-hook.py"):
+        rel = "/skills/mama/hooks/mama-hook.py"
+
+        def cmd(c):
+            return json.dumps({"hooks": {"PreCompact": [{"hooks": [{"type": "command", "command": c}]}]}})
+
+        def runs_here():  # the plugin copy did the work: no settings.json hook it trusts
+            return "keep: the slug 'demo'" in self.hook("precompact", MAMA_VIA=self.market(), CLAUDE_CONFIG_DIR=cfg)
+
+        for script in ("$HOME/.claude" + rel, "~/.claude" + rel, "${CLAUDE_CONFIG_DIR}" + rel):
             self.settings(self.one_liner(script))
-            self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), CLAUDE_CONFIG_DIR=cfg), "", script)
-            self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [
-                {"type": "command", "command": f'python3 "{script}" precompact'}]}]}}))
-            self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), CLAUDE_CONFIG_DIR=cfg), "", script)
+            self.assertTrue(runs_here(), "exec form " + script)
+        py = shutil.which("python3") and "python3" or sys.executable
+        for c in (f'{py} "$HOME/.claude{rel}" precompact', f"{py} ~/.claude{rel} precompact",
+                  f"{py} $HOME/.claude{rel} precompact", f'{py} "${{CLAUDE_CONFIG_DIR}}{rel}" precompact',
+                  f"{py} ~/'.claude'{rel} precompact"):
+            self.settings(cmd(c))
+            self.assertFalse(runs_here(), c)
+        for c in (f'{py} "~/.claude{rel}" precompact', f"{py} '$HOME/.claude{rel}' precompact",
+                  f"{py} %USERPROFILE%/.claude{rel} precompact", f"{py} '~'/.claude{rel} precompact"):
+            self.settings(cmd(c))
+            self.assertTrue(runs_here(), c)
+
+    def test_command_string_interpreter_must_exist(self):
+        self.running_goal()
+        script = os.path.join(self.tmp, "s", "hooks", "mama-hook.py")
+        os.makedirs(os.path.dirname(script))
+        open(script, "w").close()
+        wrapper = os.path.join(self.tmp, "s", "py")
+        open(wrapper, "w").close()
+
+        def cmd(c):
+            return json.dumps({"hooks": {"PreCompact": [{"hooks": [{"type": "command", "command": c}]}]}})
+
+        gone = os.path.join(self.tmp, "old-python", "bin", "python3.8")
+        for c in (f'"{gone}" "{script}" precompact', f'no-such-python-mama "{script}" precompact',
+                  f'MAMA_X=1 A_B="x y" no-such-python-mama "{script}" precompact'):
+            self.settings(cmd(c))
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), c)
+        bash = shutil.which("bash") or shutil.which("sh")
+        if bash:
+            for c in (f'MAMA_X="1" bash "{wrapper}" "{script}" precompact', f'"{sys.executable}" "{script}" precompact',
+                      f'sh "{wrapper}" "{script}" precompact'):
+                self.settings(cmd(c))
+                self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "", c)
 
     def market(self):
         return os.path.join(self.home, ".claude", "plugins", "cache", "mama", "mama", "1.0.0")
@@ -349,7 +389,7 @@ class OnceOnly(HookBase):
         script = os.path.join(self.tmp, "with space", "mama", "hooks", "mama-hook.py")
         os.makedirs(os.path.dirname(script))
         open(script, "w").close()
-        for cmd in (f'/usr/bin/python3 "{script}" precompact', f"python3 '{script}' precompact"):
+        for cmd in (f'"{sys.executable}" "{script}" precompact', f"'{sys.executable}' '{script}' precompact"):
             self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
             self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "", cmd)
             self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
@@ -359,7 +399,13 @@ class OnceOnly(HookBase):
         open(bare, "w").close()
         self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [
             {"type": "command", "command": f"py -3 {bare} precompact"}]}]}}))
-        self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "")
+        launcher = os.path.join(self.tmp, "launcher")  # the Windows py launcher, a bare name found on PATH
+        os.makedirs(launcher)
+        for name in ("py", "py.exe"):
+            with open(os.path.join(launcher, name), "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(os.path.join(launcher, name), 0o755)
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), path=launcher), "")
 
     def test_parses_windows_and_quoted_paths(self):
         import importlib.util
@@ -373,13 +419,32 @@ class OnceOnly(HookBase):
             {"type": "command", "command": "C:\\py.exe", "args": [win, "stop"]},
             {"type": "command", "command": "echo unrelated"}]}], "Bad": 3, "Worse": [1, {"hooks": 2}]}}
         self.assertEqual(m.settings_hook_scripts(cfg, "Stop"),
-                         [(None, win), (None, r"C:\m\hooks\mama-hook.py"), ("C:\\py.exe", win)])
+                         [("C:\\Python38\\python.exe", win), ("C:\\py.exe", r"C:\m\hooks\mama-hook.py"),
+                          ("C:\\py.exe", win)])
         self.assertEqual(m.settings_hook_scripts(cfg, "PreCompact"), [])
         self.assertEqual(m.settings_hook_scripts([1], "Stop"), [])
         odd = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": c} for c in (
             "python3 /a/not-mama-hook.py stop", "python3 /a/xmama-hook.py", "python3 mama-hook.py.bak",
             "python3 mama-hook.py stop", 'python3 "C:/a b/mama-hook.py"')]}]}}
-        self.assertEqual(m.settings_hook_scripts(odd, "Stop"), [(None, "mama-hook.py"), (None, "C:/a b/mama-hook.py")])
+        self.assertEqual(m.settings_hook_scripts(odd, "Stop"),
+                         [("python3", "mama-hook.py"), ("python3", "C:/a b/mama-hook.py")])
+        # exec form: command and args exactly as written (no quote stripping, no expansion)
+        exact = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": " py ", "args": [
+            '"/a/mama-hook.py"', "$HOME/mama-hook.py", " /b/mama-hook.py"]}]}]}}
+        self.assertEqual(m.settings_hook_scripts(exact, "Stop"), [(" py ", "$HOME/mama-hook.py"), (" py ", " /b/mama-hook.py")])
+
+    def test_command_string_words_end_at_shell_operators(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mama_hook_t", HOOK)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        cmds = ("python3 /a/mama-hook.py; true", "python3 /a/mama-hook.py||true", "python3 /a/mama-hook.py&",
+                "(python3 /a/mama-hook.py)", 'run --script="/a/mama-hook.py" stop', "cd /x && X=1 python3 /a/mama-hook.py",
+                "python3 /a/mama-hook.py;x", "python3 /a/not-mama-hook.py; python3 /a/mama-hook.pyc")
+        cfg = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": c} for c in cmds]}]}}
+        self.assertEqual(m.settings_hook_scripts(cfg, "Stop"),
+                         [("python3", "/a/mama-hook.py")] * 4 + [("run", "/a/mama-hook.py"), ("python3", "/a/mama-hook.py"),
+                                                                ("python3", "/a/mama-hook.py")])
 
     def test_plugin_copy_runs_without_settings_hooks(self):
         self.running_goal()
@@ -654,6 +719,27 @@ class HookDeadline(HookBase):
         self.assertLess(time.time() - t, 9)
         self.assertIn("nothing was learned", reason)
         self.assertNotIn("close check didn't finish", reason)
+
+    def test_no_optional_check_past_the_deadline(self):
+        # the spend read uses the whole budget; the close checklist's helpers the optional checks load are slow:
+        # past DEADLINE they are skipped and the block goes out with what was gathered
+        hook = self.skill_with_close_check("sys.exit(0)")
+        rec = os.path.join(self.tmp, "slow-calls")
+        with open(os.path.join(os.path.dirname(os.path.dirname(hook)), "scripts", "close-check.py"), "a",
+                  encoding="utf-8") as f:
+            for fn in ("overview_problems", "hunt_rounds", "actual_minutes", "waiting_minutes"):
+                f.write(f"\n\ndef {fn}(*a, **k):\n    open({rec!r}, 'a').write('{fn} ')\n"
+                        "    time.sleep(3)\n    return [] if '{fn}' != 'actual_minutes' else None\n".replace("{fn}", fn))
+        self.stub_spend(hook, "time.sleep(max(0.0, (deadline or time.time() + DEADLINE) - time.time()))\n"
+                              "measure.partial = True\nreturn 1000")
+        g = self.running_goal()
+        s = self.read(self.plan(g)).replace("mode: autonomous", "mode: quick")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        t = time.time()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertLess(time.time() - t, 6.0 + 0.5 + 0.5)  # DEADLINE + 0.5s, plus Python's start before T0
+        self.assertIn("still marked running", reason)
+        self.assertFalse(os.path.exists(rec), self.read(rec) if os.path.exists(rec) else "")
 
 
 if __name__ == "__main__":

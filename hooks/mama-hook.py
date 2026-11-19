@@ -10,7 +10,7 @@ no goal — the hooks never read transcripts to guess ownership.
 - MAMA_VIA=<plugin root> (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
                 mama@skills-dir, and a marketplace install may sit beside the one-liner, so each hook can be
                 registered twice; when <claude folder>/settings.json runs, for this same event, a mama-hook.py
-                whose script exists (and, in exec form, whose interpreter exists), this plugin copy exits at
+                whose script and interpreter exist (paths read as the shell would, exec form as written), this plugin copy exits at
                 once and leaves the work to that one. A stale entry (script or interpreter gone), or one under
                 another event, never silences the plugin.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
@@ -34,7 +34,9 @@ no goal — the hooks never read transcripts to guess ownership.
                 Claude Code kills the hook at 10s, counted from before bash, the launcher's Python probe and
                 the imports: all its work shares one deadline (HOOK_BUDGET from this file's first statement,
                 the rest kept for that start-up and for work past the deadline); a done goal's close check runs before the hook's own measure; a measure cut by the
-                deadline is not the spend, so it is neither written nor judged that turn.
+                deadline is not the spend, so it is neither written nor judged that turn; past the deadline no
+                optional check starts (quick, hunt, overview, learning, closed goals' measures): the block lists
+                what was found by then.
 """
 import time
 
@@ -77,14 +79,71 @@ def claude_dir():
     return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
 
 
-WORD = re.compile(r'"([^"]*)"|\'([^\']*)\'|(\S+)')  # a command string's words, quoted or bare
 HOOK_SCRIPT = re.compile(r"(?:^|[\\/])mama-hook\.py$")  # the file name is exactly mama-hook.py
+VAR = re.compile(r"\$(?:\{(\w+)\}|(\w+))")  # $VAR / ${VAR}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")  # NAME=value before a command
+OPTION_VALUE = re.compile(r"-*\w[\w-]*=")  # --script=… / name=…: the value after it
+
+
+def _shell_commands(text):
+    """A command string's simple commands, each a list of words, each word a list of (quote, text) segments
+    (quote '' bare, '"' or "'"). ; & | ( ) end a command, < > a word. Backslashes stay as written (Windows
+    paths); no escapes, globs or substitutions — only what a mama hook entry plausibly contains."""
+    cmds, words, word, i = [], [], [], 0
+
+    def end_word():
+        if word:
+            words.append(word[:])
+            word.clear()
+
+    while i < len(text):
+        c = text[i]
+        if c in "\"'":
+            j = text.find(c, i + 1)
+            j = len(text) if j < 0 else j
+            word.append((c, text[i + 1:j]))
+            i = j + 1
+            continue
+        if c.isspace() or c in "<>":
+            end_word()
+        elif c in ";&|()":
+            end_word()
+            if words:
+                cmds.append(words[:])
+                words.clear()
+        elif word and word[-1][0] == "":
+            word[-1] = ("", word[-1][1] + c)
+        else:
+            word.append(("", c))
+        i += 1
+    end_word()
+    if words:
+        cmds.append(words)
+    return cmds
+
+
+def _shell_word(segments):
+    """A word as the shell (bash, which runs hook commands) passes it on: a leading unquoted ~ (its prefix up to
+    the first slash all unquoted) is the home folder; $VAR/${VAR} expand bare or in double quotes (unset: empty),
+    never in single quotes. %VAR% stays literal: bash never expands it."""
+    def subst(t):
+        return VAR.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), t)
+
+    out = []
+    for n, (q, t) in enumerate(segments):
+        if n == 0 and q == "" and t.startswith("~") and ("/" in t or len(segments) == 1):
+            head, sep, rest = t.partition("/")
+            out.append(os.path.expanduser(head) + sep + subst(rest))
+        else:
+            out.append(t if q == "'" else subst(t))
+    return "".join(out)
 
 
 def settings_hook_scripts(settings, event):
-    """(interpreter, script) for each mama-hook.py settings.json's hooks[event] run: from a `command` string's
-    words (interpreter None: the shell finds it) and from exec form's `args` (interpreter = `command`).
-    Anything malformed is skipped."""
+    """(interpreter, script) for each mama-hook.py settings.json's hooks[event] run. Exec form (`args` a list):
+    no shell, so `command` and each arg are used exactly as written. A `command` string: per simple command,
+    the interpreter is the first word after NAME=value assignments, scripts are any word (or an option's
+    `--x=` value) naming exactly mama-hook.py, each expanded as the shell would. Anything malformed is skipped."""
     hooks = settings.get("hooks") if isinstance(settings, dict) else None
     entries = hooks.get(event) if isinstance(hooks, dict) else None
     found = []
@@ -95,30 +154,29 @@ def settings_hook_scripts(settings, event):
                 continue
             args = h.get("args")
             if isinstance(args, list):
-                found += [(h["command"], a.strip().strip("\"'")) for a in args
-                          if isinstance(a, str) and HOOK_SCRIPT.search(a.strip().strip("\"'"))]
-            else:
-                found += [(None, w) for w in (next(p for p in m.groups() if p is not None)
-                                               for m in WORD.finditer(h["command"])) if HOOK_SCRIPT.search(w)]
+                found += [(h["command"], a) for a in args if isinstance(a, str) and HOOK_SCRIPT.search(a)]
+                continue
+            for cmd in _shell_commands(h["command"]):
+                while cmd and cmd[0][0][0] == "" and ASSIGNMENT.match(cmd[0][0][1]):
+                    cmd = cmd[1:]
+                words = [_shell_word(w) for w in cmd]
+                for w in words:
+                    m = OPTION_VALUE.match(w)
+                    w = w[m.end():] if m else w
+                    if HOOK_SCRIPT.search(w):
+                        found.append((words[0], w))
     return found
 
 
-def _expand(path):
-    return os.path.expanduser(os.path.expandvars(path))
-
-
 def _runs(interpreter, script):
-    """The entry can run: its script exists and, in exec form, so does its interpreter (a path, or a bare
-    name on PATH)."""
-    if not os.path.isfile(_expand(script)):
+    """The entry can run: its script exists and so does its interpreter — a path (with a separator) must be
+    a file, a bare name must be on PATH (a bash/sh wrapper counts as found; what it runs isn't checked)."""
+    if not interpreter or not os.path.isfile(script):
         return False
-    if interpreter is None:
-        return True
-    exe = _expand(interpreter.strip().strip("\"'"))
-    if os.path.dirname(exe):
-        return os.path.isfile(exe)
+    if "/" in interpreter or "\\" in interpreter or os.sep in interpreter:
+        return os.path.isfile(interpreter)
     import shutil  # only here: most runs never get this far
-    return shutil.which(exe) is not None
+    return shutil.which(interpreter) is not None
 
 
 def step_aside(mode):
@@ -387,12 +445,18 @@ def stop(inp, g):
     problems = []
     # a done goal's close check first: it warms the spend cache, and the hook's own measure can't starve it
     close_out = close_problems(g["plan"]) if g["status"] == "done" else ""
+    pct, spent = None, None
+    if g["status"] in OPEN:  # a closed goal's final measure judges nothing: optional, after the checks
+        try:
+            pct, spent = measure_budget(g["plan"], inp.get("transcript_path", ""))
+        except Exception:
+            pass
+    def late():  # past DEADLINE no optional check starts: the block goes out with what was gathered
+        return time.time() >= DEADLINE
+
+    cut = late()
     try:
-        pct, spent = measure_budget(g["plan"], inp.get("transcript_path", ""), closed=g["status"] not in OPEN)
-    except Exception:
-        pct, spent = None, None
-    try:
-        if quick_outgrown(g, spent):
+        if not cut and quick_outgrown(g, spent):
             problems.append(
                 f"This quick goal has outgrown quick mode (past {QUICK_TOKENS // 1000}k tokens or {QUICK_MINUTES} "
                 "active minutes). Tell the user and ask: continue as a full goal (set mode checkpointed/autonomous "
@@ -414,7 +478,8 @@ def stop(inp, g):
                 f"Budget at {pct}% of its ceiling. Stop dispatching, set status waiting, and ask the user: "
                 f"continue / cut scope / stop. On continue, {raise_to}.")
     try:
-        stalled = hunt_stalled(g["plan"]) if g["status"] in OPEN else None
+        cut = cut or late()
+        stalled = hunt_stalled(g["plan"]) if g["status"] in OPEN and not cut else None
     except Exception:
         stalled = None
     if stalled:
@@ -427,7 +492,10 @@ def stop(inp, g):
             f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
             "status (waiting / paused / blocked) — or, to wait on your own background work, make `E dispatch …` "
             "or `E wait <what>` the last log line.")
-    if overview_stale(g["plan"]):
+    cut = cut or late()
+    if cut:
+        pass
+    elif overview_stale(g["plan"]):
         problems.append("A milestone (a ★ step finished, a step blocked, the status, PR or scope changed) since overview.md "
                         "was written — regenerate overview.md (the user's only window); its Status line is synced for you.")
     elif g["status"] in OPEN:
@@ -436,7 +504,8 @@ def stop(inp, g):
                 problems += _load("mama_close_check", "close-check.py").overview_problems(f.read(), g["dir"])
         except Exception:
             pass
-    if g["mode"] != "quick" and unlearned(g["plan"]):
+    cut = cut or late()
+    if not cut and g["mode"] != "quick" and unlearned(g["plan"]):
         problems.append(
             "A user decision was logged but nothing was learned since. For each answer that overrode your "
             "recommendation or stated a preference run scripts/learn.py (seen/stated/contra); if none, log `E learn none`.")
@@ -446,10 +515,15 @@ def stop(inp, g):
         problems.append("Status is done but the close checklist fails:\n" + close_out)
     if problems:
         block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems))
-    else:
+    elif not cut:  # a cut run doesn't know the list is empty: the last block stays remembered
         try:
             os.remove(os.path.join(g["dir"], ".last-block"))
         except OSError:
+            pass
+    if g["status"] not in OPEN:
+        try:
+            measure_budget(g["plan"], inp.get("transcript_path", ""), closed=True)
+        except Exception:
             pass
 
 
