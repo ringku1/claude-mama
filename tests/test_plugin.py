@@ -94,9 +94,9 @@ class Manifests(unittest.TestCase):
         errors = os.path.join(tmp, ".claude", "mama", "hook-errors.log")
         script = os.path.join(tmp, ".claude", "skills", "mama", "hooks", "mama-hook.py")
 
-        def settings():
+        def settings(python=sys.executable):
             with open(os.path.join(tmp, ".claude", "settings.json"), "w", encoding="utf-8") as f:
-                json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/bin/python3",
+                json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": python,
                                                           "args": [script, "stop"]}]}]}}, f)
 
         os.makedirs(os.path.join(tmp, ".claude"))
@@ -108,6 +108,12 @@ class Manifests(unittest.TestCase):
         open(script, "w").close()  # the one-liner is installed: this plugin (another root) steps aside
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertFalse(os.path.exists(errors))
+        self.run_plugin_hook(tmp, "PreCompact", "[1, 2]")  # the one-liner registers only Stop: PreCompact runs here
+        self.assertTrue(os.path.exists(errors))
+        os.remove(errors)
+        settings(os.path.join(tmp, "gone-python", "python3"))  # its interpreter is gone: the one-liner can't run
+        self.run_plugin_hook(tmp, "Stop", "[1, 2]")
+        self.assertTrue(os.path.exists(errors))
         os.remove(os.path.join(tmp, ".claude", "settings.json"))  # no one-liner hooks: runs
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertTrue(os.path.exists(errors))

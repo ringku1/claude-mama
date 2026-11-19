@@ -243,7 +243,7 @@ class Stop(HookBase):
 class OnceOnly(HookBase):
     """The one-liner's skills/mama also loads as plugin mama@skills-dir, and a marketplace install may sit beside
     the one-liner: a plugin-launched copy (MAMA_VIA set) steps aside whenever settings.json registers a
-    mama-hook.py whose script exists on disk. A stale entry (its script gone) never silences the plugin."""
+    mama-hook.py for the same event whose script (and exec-form interpreter) exists. A stale entry never silences the plugin."""
 
     def settings(self, text, base=None):
         d = base or os.path.join(self.home, ".claude")
@@ -254,14 +254,66 @@ class OnceOnly(HookBase):
     def skills_dir(self, base=None):
         return os.path.join(base or os.path.join(self.home, ".claude"), "skills", "mama")
 
-    def one_liner(self, script=None, base=None):
-        """settings.json as install.py writes it, running script (default: a real file under skills/mama)."""
+    def one_liner(self, script=None, base=None, event="PreCompact", command=None):
+        """settings.json as install.py writes it (exec form: command = the interpreter), running script
+        (default: a real file under skills/mama) under event."""
         if script is None:
             script = os.path.join(self.skills_dir(base), "hooks", "mama-hook.py")
             os.makedirs(os.path.dirname(script), exist_ok=True)
             open(script, "w").close()
-        return json.dumps({"hooks": {"PreCompact": [{"hooks": [
-            {"type": "command", "command": sys.executable, "args": [script, "precompact"]}]}]}})
+        return json.dumps({"hooks": {event: [{"hooks": [
+            {"type": "command", "command": command or sys.executable, "args": [script, event.lower()]}]}]}})
+
+    def test_steps_aside_only_for_the_same_event(self):
+        # a one-liner that registers only Stop leaves the plugin's PreCompact and SessionStart to the plugin
+        self.running_goal()
+        self.settings(self.one_liner(event="Stop"))
+        self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()))
+        errors = os.path.join(self.home, ".claude", "mama", "hook-errors.log")
+        self.assertEqual(self.hook("stop", raw="[1, 2]", MAMA_VIA=self.market()), "")
+        self.assertFalse(os.path.exists(errors))  # Stop stepped aside before reading stdin
+        self.hook("sessionstart", raw="[1, 2]", MAMA_VIA=self.market())
+        self.assertTrue(os.path.exists(errors))  # SessionStart ran (and logged the bad stdin)
+        self.settings(self.one_liner(event="SessionStart"))
+        os.remove(errors)
+        self.hook("sessionstart", raw="[1, 2]", MAMA_VIA=self.market())
+        self.assertFalse(os.path.exists(errors))
+
+    def test_exec_form_needs_its_interpreter(self):
+        # brew upgraded python: the one-liner's script is there but its interpreter is gone, so it can't run
+        self.running_goal()
+        for gone in (os.path.join(self.tmp, "old-python", "bin", "python3.8"), "no-such-python-mama"):
+            self.settings(self.one_liner(command=gone))
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), gone)
+        bare = os.path.basename(sys.executable)
+        path = os.path.dirname(sys.executable)
+        self.settings(self.one_liner(command=bare))  # a bare name found on PATH
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), path=path), "")
+
+    def test_script_name_must_be_exactly_mama_hook_py(self):
+        self.running_goal()
+        for name in ("not-mama-hook.py", "xmama-hook.py", "mama-hook.pyc"):
+            script = os.path.join(self.tmp, "n", name)
+            os.makedirs(os.path.dirname(script), exist_ok=True)
+            open(script, "w").close()
+            self.settings(self.one_liner(script))
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), name)
+            cmd = json.dumps({"hooks": {"PreCompact": [{"hooks": [
+                {"type": "command", "command": f'python3 "{script}" precompact'}]}]}})
+            self.settings(cmd)
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), name)
+
+    def test_expands_variables_and_home_in_script_paths(self):
+        self.running_goal()
+        self.one_liner()  # creates ~/.claude/skills/mama/hooks/mama-hook.py
+        cfg = os.path.join(self.home, ".claude")
+        for script in ("$HOME/.claude/skills/mama/hooks/mama-hook.py", "~/.claude/skills/mama/hooks/mama-hook.py",
+                       "${CLAUDE_CONFIG_DIR}/skills/mama/hooks/mama-hook.py"):
+            self.settings(self.one_liner(script))
+            self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), CLAUDE_CONFIG_DIR=cfg), "", script)
+            self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [
+                {"type": "command", "command": f'python3 "{script}" precompact'}]}]}}))
+            self.assertEqual(self.hook("precompact", MAMA_VIA=self.market(), CLAUDE_CONFIG_DIR=cfg), "", script)
 
     def market(self):
         return os.path.join(self.home, ".claude", "plugins", "cache", "mama", "mama", "1.0.0")
@@ -273,6 +325,7 @@ class OnceOnly(HookBase):
         before = self.read(log)
         self.assertEqual(self.hook("precompact", MAMA_VIA=self.skills_dir()), "")
         self.assertEqual(self.read(log), before)  # no work: no `E compaction` line
+        self.settings(self.one_liner(event="Stop"))
         self.assertEqual(self.hook("stop", raw="[1, 2]", MAMA_VIA=self.skills_dir() + os.sep), "")  # before reading stdin
         self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
         self.assertIn("keep: the slug 'demo'", self.hook("precompact"))  # the settings.json hook itself runs
@@ -297,12 +350,15 @@ class OnceOnly(HookBase):
         os.makedirs(os.path.dirname(script))
         open(script, "w").close()
         for cmd in (f'/usr/bin/python3 "{script}" precompact', f"python3 '{script}' precompact"):
-            self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
+            self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
             self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "", cmd)
+            self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": cmd}]}]}}))
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.market()), cmd)  # another event
         bare = os.path.join(self.tmp, "bare", "hooks", "mama-hook.py")
         os.makedirs(os.path.dirname(bare))
         open(bare, "w").close()
-        self.settings(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": f"py -3 {bare} stop"}]}]}}))
+        self.settings(json.dumps({"hooks": {"PreCompact": [{"hooks": [
+            {"type": "command", "command": f"py -3 {bare} precompact"}]}]}}))
         self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "")
 
     def test_parses_windows_and_quoted_paths(self):
@@ -316,8 +372,14 @@ class OnceOnly(HookBase):
             {"type": "command", "command": r"C:\py.exe C:\m\hooks\mama-hook.py stop"},
             {"type": "command", "command": "C:\\py.exe", "args": [win, "stop"]},
             {"type": "command", "command": "echo unrelated"}]}], "Bad": 3, "Worse": [1, {"hooks": 2}]}}
-        self.assertEqual(m.settings_hook_scripts(cfg), [win, r"C:\m\hooks\mama-hook.py", win])
-        self.assertEqual(m.settings_hook_scripts([1]), [])
+        self.assertEqual(m.settings_hook_scripts(cfg, "Stop"),
+                         [(None, win), (None, r"C:\m\hooks\mama-hook.py"), ("C:\\py.exe", win)])
+        self.assertEqual(m.settings_hook_scripts(cfg, "PreCompact"), [])
+        self.assertEqual(m.settings_hook_scripts([1], "Stop"), [])
+        odd = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": c} for c in (
+            "python3 /a/not-mama-hook.py stop", "python3 /a/xmama-hook.py", "python3 mama-hook.py.bak",
+            "python3 mama-hook.py stop", 'python3 "C:/a b/mama-hook.py"')]}]}}
+        self.assertEqual(m.settings_hook_scripts(odd, "Stop"), [(None, "mama-hook.py"), (None, "C:/a b/mama-hook.py")])
 
     def test_plugin_copy_runs_without_settings_hooks(self):
         self.running_goal()
@@ -476,14 +538,14 @@ class Lean(HookBase):
             self.spend(g, 1000)
         hook = self.skill_with_close_check("sys.exit(0)")
         src = self.read(hook)
-        self.assertIn("HOOK_BUDGET = 5.0", src)
-        open(hook, "w", encoding="utf-8").write(src.replace("HOOK_BUDGET = 5.0", "HOOK_BUDGET = -1.0", 1))  # always past
+        self.assertIn("HOOK_BUDGET = 6.0", src)
+        open(hook, "w", encoding="utf-8").write(src.replace("HOOK_BUDGET = 6.0", "HOOK_BUDGET = -1.0", 1))  # always past
         self.hook("stop", hook=hook)
-        self.assertTrue(os.path.exists(cache))  # cut short: kept for the next Stop
+        self.assertTrue(os.path.exists(cache))  # out of time: kept for the next Stop
         for _ in range(10):
             if not os.path.exists(cache):
                 break
-            self.hook("stop", hook=hook)
+            self.hook("stop")  # a Stop with time finishes it
         self.assertFalse(os.path.exists(cache))
         self.assertRegex(self.read(self.plan(g)), r"budget: ~7k /")
 
@@ -537,7 +599,11 @@ class HookDeadline(HookBase):
         if first:
             self.assertRegex(first, r"^\w+ = time\.time\(\)")
         budget = re.search(r"^HOOK_BUDGET = ([\d.]+)", self.read(HOOK), re.M)
-        self.assertTrue(budget and float(budget.group(1)) <= 5.0, budget)
+        # up to ~2.5s before T0 (bash, the launcher's probe, Python start on cold Windows) + the budget
+        # must leave at least 1.5s of Claude Code's 10s for work past the deadline
+        self.assertTrue(budget, budget)
+        self.assertEqual(float(budget.group(1)), 6.0)
+        self.assertLessEqual(2.5 + float(budget.group(1)) + 1.5, 10)
 
     def test_deadline_is_budget_from_the_hook_start(self):
         hook = self.skill_with_close_check("sys.exit(0)")
@@ -548,7 +614,7 @@ class HookDeadline(HookBase):
         self.hook("stop", hook=hook)
         ds = [float(l) for l in self.read(rec).split()]
         self.assertTrue(ds, ds)
-        self.assertLess(ds[0], t + 5.5)  # 5s from the file's first statement, process start included
+        self.assertLess(ds[0], t + 6.5)  # 6s from the file's first statement, process start included
 
     def test_partial_spend_is_not_written_or_judged(self):
         hook = self.skill_with_close_check("sys.exit(0)")
@@ -559,6 +625,23 @@ class HookDeadline(HookBase):
         self.assertEqual(self.hook("stop", hook=hook), "")  # 90% of a cut read: not judged
         self.assertIn(before, self.read(self.plan(g)))
         self.assertNotIn("~900k", self.read(self.plan(g)))
+
+    def test_closed_goal_measure_skipped_under_min_work(self):
+        # less than MIN_WORK left: stop() skips a closed goal's measure (the cache stays for a later Stop);
+        # with time left it measures, and a cut measure keeps the cache too
+        hook = self.skill_with_close_check("sys.exit(0)")
+        rec = os.path.join(self.tmp, "calls")
+        self.stub_spend(hook, f"open({rec!r}, 'a').write('x')\nmeasure.partial = True\nreturn 1000")
+        g = self.closed_with_cache("old")
+        cache = os.path.join(g, ".spend-cache.json")
+        short = os.path.join(os.path.dirname(hook), "short-hook.py")
+        open(short, "w", encoding="utf-8").write(self.read(hook).replace("HOOK_BUDGET = 6.0", "HOOK_BUDGET = -1.0", 1))
+        self.hook("stop", hook=short)
+        self.assertFalse(os.path.exists(rec))  # not measured
+        self.assertTrue(os.path.exists(cache))
+        self.hook("stop", hook=hook)
+        self.assertEqual(self.read(rec), "x")  # measured, cut: cache kept
+        self.assertTrue(os.path.exists(cache))
 
     def test_done_goal_close_check_not_starved_by_the_measure(self):
         hook = self.skill_with_close_check("sys.exit(0)")

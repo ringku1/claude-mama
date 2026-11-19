@@ -9,9 +9,10 @@ no goal — the hooks never read transcripts to guess ownership.
 
 - MAMA_VIA=<plugin root> (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
                 mama@skills-dir, and a marketplace install may sit beside the one-liner, so each hook can be
-                registered twice; when <claude folder>/settings.json runs a mama-hook.py whose script exists,
-                this plugin copy exits at once and leaves the work to that one. A stale entry (its script
-                gone) never silences the plugin.
+                registered twice; when <claude folder>/settings.json runs, for this same event, a mama-hook.py
+                whose script exists (and, in exec form, whose interpreter exists), this plugin copy exits at
+                once and leaves the work to that one. A stale entry (script or interpreter gone), or one under
+                another event, never silences the plugin.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - every mode:   at most once a day starts scripts/self-update.py in the background (git installs;
@@ -38,7 +39,10 @@ no goal — the hooks never read transcripts to guess ownership.
 import time
 
 T0 = time.time()  # first: the clock runs from before the imports (1-2.5s with bash and the probe on cold Windows)
-HOOK_BUDGET = 5.0  # seconds of work from T0; Claude Code kills the hook at 10s from before Python started
+# seconds of work from T0. Claude Code kills the hook at 10s from before bash started: up to ~2.5s before T0
+# (bash, the launcher's probe, Python start on cold Windows) + 6s = 8.5s, leaving ~1.5s for work past the
+# deadline (a block's print, a cache write, a subprocess's timeout overshoot); the close check gets ~4s of it
+HOOK_BUDGET = 6.0
 DEADLINE = T0 + HOOK_BUDGET  # time.time() epoch, shared by every measure and the close check
 
 import datetime  # noqa: E402
@@ -56,6 +60,7 @@ UPDATE_EVERY = 24 * 3600
 CLOSE_CHECK_RESERVE = 1.0  # seconds of DEADLINE kept for the hook's own measure after the close check
 CLOSE_CHECK_SPEND_MARGIN = 1.5  # the close check's own spend read stops this long before its timeout
 MIN_WORK = 0.5  # seconds: less than this left before DEADLINE, a close check or a closed goal's measure is skipped
+EVENTS = {"stop": "Stop", "precompact": "PreCompact", "sessionstart": "SessionStart"}  # mode -> settings.json event
 
 try:
     sys.path.insert(0, SCRIPTS)
@@ -72,40 +77,63 @@ def claude_dir():
     return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
 
 
-HOOK_SCRIPT = re.compile(r'"([^"]*mama-hook\.py)"|\'([^\']*mama-hook\.py)\'|(\S*mama-hook\.py)')
+WORD = re.compile(r'"([^"]*)"|\'([^\']*)\'|(\S+)')  # a command string's words, quoted or bare
+HOOK_SCRIPT = re.compile(r"(?:^|[\\/])mama-hook\.py$")  # the file name is exactly mama-hook.py
 
 
-def settings_hook_scripts(settings):
-    """The mama-hook.py script paths settings.json's hooks run: from a `command` string (quoted or bare)
-    and from `args` items. Anything malformed is skipped."""
+def settings_hook_scripts(settings, event):
+    """(interpreter, script) for each mama-hook.py settings.json's hooks[event] run: from a `command` string's
+    words (interpreter None: the shell finds it) and from exec form's `args` (interpreter = `command`).
+    Anything malformed is skipped."""
     hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    entries = hooks.get(event) if isinstance(hooks, dict) else None
     found = []
-    for entries in (hooks.values() if isinstance(hooks, dict) else ()):
-        for entry in (entries if isinstance(entries, list) else ()):
-            handlers = entry.get("hooks") if isinstance(entry, dict) else None
-            for h in (handlers if isinstance(handlers, list) else ()):
-                if not isinstance(h, dict):
-                    continue
-                if isinstance(h.get("command"), str):
-                    found += [next(p for p in m.groups() if p) for m in HOOK_SCRIPT.finditer(h["command"])]
-                for a in (h.get("args") if isinstance(h.get("args"), list) else ()):
-                    if isinstance(a, str) and a.strip().strip("\"'").endswith("mama-hook.py"):
-                        found.append(a.strip().strip("\"'"))
+    for entry in (entries if isinstance(entries, list) else ()):
+        handlers = entry.get("hooks") if isinstance(entry, dict) else None
+        for h in (handlers if isinstance(handlers, list) else ()):
+            if not isinstance(h, dict) or not isinstance(h.get("command"), str):
+                continue
+            args = h.get("args")
+            if isinstance(args, list):
+                found += [(h["command"], a.strip().strip("\"'")) for a in args
+                          if isinstance(a, str) and HOOK_SCRIPT.search(a.strip().strip("\"'"))]
+            else:
+                found += [(None, w) for w in (next(p for p in m.groups() if p is not None)
+                                               for m in WORD.finditer(h["command"])) if HOOK_SCRIPT.search(w)]
     return found
 
 
-def step_aside():
-    """This is a plugin copy (MAMA_VIA = its plugin root, set by hooks.json) and settings.json already runs a
-    mama-hook.py whose script exists (the one-liner): running both would do the work twice. A stale entry
-    (script gone), or an unreadable or invalid settings.json, counts as no: the plugin copy then runs."""
-    if not os.environ.get("MAMA_VIA"):
+def _expand(path):
+    return os.path.expanduser(os.path.expandvars(path))
+
+
+def _runs(interpreter, script):
+    """The entry can run: its script exists and, in exec form, so does its interpreter (a path, or a bare
+    name on PATH)."""
+    if not os.path.isfile(_expand(script)):
+        return False
+    if interpreter is None:
+        return True
+    exe = _expand(interpreter.strip().strip("\"'"))
+    if os.path.dirname(exe):
+        return os.path.isfile(exe)
+    import shutil  # only here: most runs never get this far
+    return shutil.which(exe) is not None
+
+
+def step_aside(mode):
+    """This is a plugin copy (MAMA_VIA = its plugin root, set by hooks.json) and settings.json already runs,
+    for this mode's event, a mama-hook.py that can run (the one-liner): running both would do the work twice.
+    A stale entry (script or interpreter gone), one under another event, or an unreadable or invalid
+    settings.json counts as no: the plugin copy then runs."""
+    if not os.environ.get("MAMA_VIA") or mode not in EVENTS:
         return False
     try:
         with open(os.path.join(claude_dir(), "settings.json"), encoding="utf-8") as f:
             settings = json.load(f)
     except (OSError, ValueError):
         return False
-    return any(os.path.isfile(os.path.expanduser(p)) for p in settings_hook_scripts(settings))
+    return any(_runs(i, p) for i, p in settings_hook_scripts(settings, EVENTS[mode]))
 
 
 def main_checkout(cwd):
@@ -287,12 +315,13 @@ def hunt_stalled(plan):
 def measure_budget(plan, transcript, closed=False):
     """Write the measured spend into the plan header (mtime kept); return (pct of ceiling or None,
     tokens or None). A closed goal is measured once more (its final spend), then its cache is
-    deleted, so later turns skip it and no done goal keeps a cache on disk. A measure cut by the
+    deleted, so later turns skip it and no done goal keeps a cache on disk; with less than MIN_WORK
+    left it is not measured at all and keeps its cache for a later Stop. A measure cut by the
     hook's DEADLINE is only part of the spend: not written, not judged (None, None); the next Stop
     resumes from the cache."""
     sp = _load("mama_spend", "spend.py")
     cache = os.path.join(os.path.dirname(plan), sp.CACHE)
-    if closed and not os.path.exists(cache):
+    if closed and (not os.path.exists(cache) or time.time() >= DEADLINE - MIN_WORK):
         return None, None
     total = sp.measure(plan, transcript, deadline=DEADLINE)
     if getattr(sp.measure, "partial", False):  # cut by the deadline: the next Stop finishes it
@@ -519,7 +548,7 @@ def report(mode, err):
 if __name__ == "__main__":
     _mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
-        if not step_aside():  # else the settings.json hook does this work; running both would do it twice
+        if not step_aside(_mode):  # else the settings.json hook does this work; running both would do it twice
             main(_mode)
     except Exception as e:
         report(_mode, e)
