@@ -506,37 +506,91 @@ class AutoRaiseDefault(PlanBase):
 
 
 class Heartbeat(PlanBase):
+    """The Stop hook runs when a turn ends, right after a `wait …`/`waiting` line: a turn of any
+    length that logs no wait is no sign the hook is down."""
     def setUp(self):
         super().setUp()
         self.ps("--header", "status=running", "mode=autonomous", "budget=M")
         self.hb = os.path.join(self.g, ".heartbeat")
         self.logp = os.path.join(self.g, "log.md")
 
-    def beat(self, age_min, log_age_min):
+    def beat(self, age_min):
         with open(self.hb, "w", encoding="utf-8") as f:
             f.write("2026-01-01T00:00:00 120k\n")
-        now = time.time()
-        os.utime(self.hb, (now - age_min * 60, now - age_min * 60))
-        os.utime(self.logp, (now - log_age_min * 60, now - log_age_min * 60))
+        t = time.time() - age_min * 60
+        os.utime(self.hb, (t, t))
 
-    def test_stale_heartbeat_with_newer_log_warns(self):
-        self.beat(45, 5)
+    def logged(self, ago_min, text):
+        """Append an E line stamped ago_min minutes back, with its day's marker."""
+        at = datetime.datetime.now() - datetime.timedelta(minutes=ago_min)
+        with open(self.logp, "a", encoding="utf-8") as f:
+            f.write(f"-- {at:%Y-%m-%d}\nE90 {at:%H:%M} {text}\n")
+        return at
+
+    def test_stale_heartbeat_after_a_wait_line_warns(self):
+        # failing-first: test_stale_heartbeat_after_a_wait_line_warns
+        at = self.logged(15, "wait S1 S2")
+        self.beat(45)
         out = self.ps("S1", "notes=x")
-        self.assertIn("WARNING: the Stop hook hasn't run for 45 min — check ~/.claude/mama/hook-errors.log", out)
-        self.beat(45, 5)
-        self.assertIn("hasn't run for 45 min", self.ps("--header", "pr=none"))  # any write
+        self.assertIn(f"WARNING: the Stop hook hasn't run since the wait at {at:%H:%M} (15 min ago) — "
+                      "check ~/.claude/mama/hook-errors.log", out)
+        self.beat(45)
+        self.assertIn("hasn't run since the wait", self.ps("--header", "pr=none"))  # any write
+
+    def test_waiting_line_counts_as_a_wait(self):
+        self.logged(20, "S3 dispatched, waiting")
+        self.beat(45)
+        self.assertIn("hasn't run since the wait", self.ps("S1", "notes=x"))
+
+    def test_long_turn_without_a_wait_is_quiet(self):
+        # failing-first: test_long_turn_without_a_wait_is_quiet
+        self.logged(40, "dispatch S1")
+        self.beat(45)  # a 45-minute turn: every plan-set/log call moved log.md past the heartbeat
+        self.assertNotIn("Stop hook", self.ps("S1", "notes=a"))
 
     def test_quiet_otherwise(self):
-        self.beat(10, 5)  # fresh
+        # failing-first: test_quiet_otherwise
+        self.logged(5, "wait S1")  # the wait is under 10 min old
+        self.beat(45)
         self.assertNotIn("Stop hook", self.ps("S1", "notes=a"))
-        self.beat(45, 50)  # nothing logged since
+        self.logged(30, "wait S1")
+        self.logged(20, "dispatch S2")  # the last wait is still the one that counts
+        self.beat(25)  # the hook ran after that wait
         self.assertNotIn("Stop hook", self.ps("S1", "notes=b"))
         os.remove(self.hb)  # an old goal: no heartbeat at all
         self.assertNotIn("Stop hook", self.ps("S1", "notes=c"))
-        self.beat(45, 5)
+        self.beat(45)
         self.ps("--header", "status=waiting")  # not running
-        self.beat(45, 5)
+        self.logged(30, "wait S1")
+        self.beat(45)
         self.assertNotIn("Stop hook", self.ps("S1", "notes=d"))
+
+
+class ApprovedLine(PlanBase):
+    """The first approval logs `E approved: …`, the overview's "Plan approved" Timeline row."""
+    def approvals(self):
+        return re.findall(r"^E\d+ \d\d:\d\d approved: .*$", self.read(os.path.join(self.g, "log.md")), re.M)
+
+    def test_first_approval_logs_once(self):
+        # failing-first: test_first_approval_logs_once
+        self.ps("--header", "status=approved", "mode=checkpointed", "budget=L 2M")
+        self.assertEqual(self.approvals(), [self.approvals()[0]])
+        self.assertTrue(self.approvals()[0].endswith("approved: mode=checkpointed budget=L 2M auto-raise=1.5x"))
+        self.ps("--header", "status=running")
+        self.ps("--header", "status=waiting")
+        self.ps("--header", "status=running")  # waiting → running before any resume line: still not a new approval
+        self.assertEqual(len(self.approvals()), 1)
+
+    def test_quick_goal_logs_it_too(self):
+        q = self.new_goal("tiny")
+        self.run_s("plan-set.py", self.plan(q), "S+", "title=a", "verify=v")
+        self.run_s("log.py", os.path.join(q, "log.md"), "E", "playback: confirmed")
+        self.run_s("plan-set.py", self.plan(q), "--header", "status=running", "mode=quick")
+        self.assertRegex(self.read(os.path.join(q, "log.md")), r"(?m)^E\d+ \d\d:\d\d approved: mode=quick budget=")
+
+    def test_refused_approval_logs_nothing(self):
+        self.ps("--header", "status=approved", "mode=checkpointed", ok=False)  # no ceiling
+        self.assertEqual(self.approvals(), [])
 
 
 if __name__ == "__main__":

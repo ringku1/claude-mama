@@ -27,8 +27,9 @@ Guards (they enforce the skill's rules, so state can't drift):
   these fields get them added when set
 - the first approval (not quick) refuses a budget size below the tokens likely (estimate.py: past goals'
   tokens per step × live steps) unless a `D … budget … (tag: user)` line accepts it; no history, no check
-- after any write on a running goal, a `.heartbeat` over 30 min old while log.md changed since prints a
-  WARNING that the Stop hook isn't running
+- after any write on a running goal, a last `E … wait …`/`E … waiting` line over 10 min old with a
+  `.heartbeat` older than it prints a WARNING that the Stop hook isn't running (no `.heartbeat`: silent)
+- the first approval logs `E approved: mode=<mode> budget=<size> auto-raise=<f>`, once per goal
 - pr is one of ask-at-end | auto | none | declined | <url>
 - a hand-typed end earlier than start is refused (a step that crossed midnight: end=now)
 - header status done runs close-check.py and is refused until it prints OK
@@ -57,6 +58,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
+import clock  # noqa: E402
 import fileio  # noqa: E402
 import overview  # noqa: E402
 import spend  # noqa: E402
@@ -68,7 +70,8 @@ PR_VALUES = ("ask-at-end", "auto", "none", "declined")
 SIZE = re.compile(r"[SM]|L \d+(?:\.\d+)?[kM]")
 SPENT = re.compile(r"~\d+(?:\.\d+)?k")
 TIERS = ("quick", "standard", "full")
-HEARTBEAT_STALE = 30 * 60  # seconds without a Stop hook run, while the log moved on, before plan-set warns
+HEARTBEAT_STALE = datetime.timedelta(minutes=10)  # a wait line this old with no Stop hook run since: plan-set warns
+WAIT = re.compile(r"\bwait(?:ing)?\b")  # `E … wait …` / `E … waiting`: the turn ends, the Stop hook runs
 
 LIVE_EXCLUDED = {"obsolete", "parked"}
 
@@ -285,6 +288,9 @@ def guard_header(path, lines, updates):
     if first_go and size and "auto-raise" not in updates and header_value(lines, "auto-raise") in ("", "—"):
         updates["auto-raise"] = "1.5x"  # rules/loop.md → Budget: the Stop hook may raise once, to approved × 1.5
     guard_budget(path, lines, updates, log, first_go or prev in ("planning", ""))
+    if first_go and not re.search(r"^E\d+ \S+ approved:", log, re.M):  # overview.py's "Plan approved" row
+        raise_ = updates.get("auto-raise", header_value(lines, "auto-raise")) or "—"
+        log_budget(path, f"approved: mode={mode} budget={size or '—'} auto-raise={raise_}")
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
         subprocess.run([sys.executable, logpy, logp, "E", "waiting for the user"], stdout=subprocess.DEVNULL)
@@ -428,18 +434,24 @@ def main():
 
 
 def heartbeat_warning(goal, lines):
-    """A running goal whose `.heartbeat` (written by every Stop hook run) is over 30 min old while
-    log.md moved on since: the hook isn't running. No `.heartbeat` (a goal from before it) — silent."""
+    """A running goal whose last `wait`/`waiting` E line (a turn ended there, so the Stop hook ran)
+    is over 10 min old while `.heartbeat` (written by every Stop hook run) is older than that line:
+    the hook isn't running. A long turn with no wait says nothing. No `.heartbeat` — silent."""
     try:
         if header_value(lines, "status") != "running":
             return
-        beat = os.path.getmtime(os.path.join(goal, ".heartbeat"))
-        logged = os.path.getmtime(os.path.join(goal, "log.md"))
+        beat = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(goal, ".heartbeat")))
+        log = open(os.path.join(goal, "log.md"), encoding="utf-8").read()
     except OSError:
         return
-    age = datetime.datetime.now().timestamp() - beat
-    if age > HEARTBEAT_STALE and logged > beat:
-        print(f"WARNING: the Stop hook hasn't run for {int(age // 60)} min — check ~/.claude/mama/hook-errors.log")
+    waits = [dt for dt, kind, _, text in clock.timeline(log, clock.start_of("\n".join(lines)))
+             if kind == "E" and WAIT.search(text)]
+    if not waits:
+        return
+    at, now = waits[-1], datetime.datetime.now()
+    if now - at > HEARTBEAT_STALE and beat < at:
+        print(f"WARNING: the Stop hook hasn't run since the wait at {at:%H:%M} "
+              f"({int((now - at).total_seconds() // 60)} min ago) — check ~/.claude/mama/hook-errors.log")
 
 
 def budget_line(path, lines):
