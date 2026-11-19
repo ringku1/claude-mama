@@ -2,8 +2,9 @@
 """Check a mama goal is ready to close, and draft its lessons metrics line.
 
 Usage: close-check.py <store>/<slug>
-Checks evidence, step times, placeholders, Trello, metrics, patterns, profile, commits, and —
-for build/fix/mixed goals — that the last bug-hunt round found 0 real bugs.
+Checks evidence, step times, placeholders, Trello, metrics, patterns, profile, commits, the Stop
+hook's heartbeat, and — for build/fix/mixed goals — the bug hunt against the plan's tier (its round-1
+level, its round cap, a clean last round or the user's deliver decision).
 Prints each missing item, then a prefilled metrics line (fill the `?` fields from memory
 of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
@@ -74,7 +75,8 @@ def goal_ids(goal):
 
 def overview_problems(ov, goal=None):
     """The overview is the user's window: plain words, one screen. Internal IDs are flagged only
-    when this goal's plan or log has them (pass the goal dir; without it, IDs aren't checked)."""
+    when this goal's plan or log has them (pass the goal dir; without it, IDs aren't checked).
+    The whole file is checked: the hand-written parts and the generated mama:auto block alike."""
     out = []
     body = re.sub(r"`[^`]*`|\]\([^)]*\)|\b[a-z][\w+.-]*://\S+", "", ov)
     body = re.sub(rf"\b(?:\d{{1,3}}(?:\.\d{{1,3}}){{3}}|localhost|[\w-]+(?:\.[\w-]+)*\.{HOST_TLD}):\d+\b", "", body)
@@ -144,14 +146,28 @@ def claimed_tokens(lessons, slug):
 
 HUNT = re.compile(r"^E\d+ \S+ hunt (\d+|none):(.*)$", re.M)  # a round's result; `hunt 3 fixed …` is progress
 PUSH = re.compile(r"^E\d+ \S+ push(ed)?\b", re.M)
+DELIVER = re.compile(r"^D\d+ \S+ .*deliver with known issues.*tag: user", re.M)
+EXTRA = re.compile(r"^D\d+ \S+ hunt: extra round.*tag: user", re.M)
+HUNT_CAP = {"quick": 1, "standard": 1, "full": 2}
 
 
-def hunt_problems(log, head, quick):
-    """Code goals close only after a bug hunt came back clean (rules/loop.md → Bug hunt): each
-    round names its method (`/code-review …`, high on a full goal); the last `E hunt <k>: … <r> real …` line has 0 real
-    bugs, or the user accepted known issues after it; and the last push comes after the last hunt,
-    so what was delivered was hunted.
-    Quick goals need one light round; `E hunt none: <why>` when no code changed."""
+def tier_of(head):
+    """The plan's tier: `tier:` in the header; without one (goals from before tiers) `mode: quick`
+    is quick and anything else full."""
+    tier = head.get("tier", "")
+    if tier in HUNT_CAP:
+        return tier
+    return "quick" if head.get("mode") == "quick" else "full"
+
+
+def hunt_problems(log, head, tier):
+    """Code goals close only after a bug hunt (rules/loop.md → Bug hunt): each round names its
+    method (`/code-review …`; round 1 high on a full or standard goal, low will do after it and on
+    a quick goal); rounds past the tier's cap (HUNT_CAP) each follow a `D hunt: extra round …
+    (tag: user)` logged since the round before; the last round has 0 real bugs (trade-offs aren't
+    real), or the user chose to deliver with known issues after it (quick goals skip this); and the
+    last push comes after the last hunt, so what was delivered was hunted.
+    `E hunt none: <why>` when no code changed."""
     if head.get("type") not in ("build", "fix", "mixed"):
         return []
     hunts = list(HUNT.finditer(log))
@@ -160,15 +176,23 @@ def hunt_problems(log, head, quick):
                 "`E hunt <k>: <n> found, <r> real, <x> fixed — /code-review <level> …` "
                 "(or `E hunt none: <why>` if no code changed)"]
     out = []
+    quick = tier == "quick"
     rounds = [h for h in hunts if h.group(1) != "none"]
     unnamed = [h.group(1) for h in rounds if "/code-review" not in h.group(2)]
     if unnamed:
         out.append(f"hunt round {unnamed[0]} doesn't name /code-review — a test run is verify, not a hunt; run "
                    "/code-review (rules/loop.md → Bug hunt) and log `E hunt <k>: … — /code-review <level> …`")
-    light = [h.group(1) for h in rounds if re.search(r"/code-review (low|medium)\b", h.group(2))]
+    light = [h.group(1) for h in rounds if h.group(1) == "1" and re.search(r"/code-review (low|medium)\b", h.group(2))]
     if light and not quick:
-        out.append(f"hunt round {light[0]} used a light /code-review — a full goal hunts with "
-                   "`/code-review high` every round (quick goals use low)")
+        out.append(f"hunt round 1 used a light /code-review — a {tier} goal's first round is "
+                   "`/code-review high` (later rounds and quick goals may use low)")
+    cap, prev = HUNT_CAP[tier], 0
+    for h in rounds:
+        if int(h.group(1)) > cap and not EXTRA.search(log, prev, h.start()):
+            out.append(f"round {h.group(1)} is past the {tier} cap of {cap} without the user's OK — ask: deliver "
+                       "with known issues / one more low round, and log `D hunt: extra round … (tag: user)` "
+                       "before running it")
+        prev = h.end()
     last = hunts[-1]
     pushes = list(PUSH.finditer(log))
     if pushes and pushes[-1].start() < last.start() and last.group(1) != "none":
@@ -179,10 +203,23 @@ def hunt_problems(log, head, quick):
     m = re.search(r"(\d+) real", last.group(2))
     if m is None:
         return out + [f"hunt line has no real-bug count: {last.group(0)!r} — log `E hunt <k>: <n> found, <r> real, <x> fixed`"]
-    if int(m.group(1)) and not re.search(r"^D\d+ \S+ .*known issues.*tag: user", log[last.end():], re.M):
-        out.append(f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them and hunt "
-                   "again until a round is clean, or the user accepts them (`D … known issues … (tag: user)`)")
+    if int(m.group(1)) and not DELIVER.search(log, last.end()):
+        out.append(f"the last bug hunt (round {last.group(1)}) found {m.group(1)} real bug(s) — fix them; then hunt "
+                   "again if under the cap, or ask the user: deliver with known issues "
+                   "(`D hunt: deliver with known issues … (tag: user)`) / one more low round "
+                   "(`D hunt: extra round … (tag: user)`)")
     return out
+
+
+def heartbeat_problems(goal, log):
+    """Work was dispatched but the Stop hook, which writes <goal>/.heartbeat on every stop of an open
+    goal, never ran: the hooks aren't installed. Skipped in the hook's own run (MAMA_SPEND_DEADLINE
+    set), which proves the hook runs and may come before its first heartbeat write."""
+    if spend_deadline() != float("inf") or not re.search(r"^E\d+ \S+ (?:re-)?dispatch\b", log, re.M):
+        return []
+    if os.path.exists(os.path.join(goal, ".heartbeat")):
+        return []
+    return ["the Stop hook never ran for this goal (no .heartbeat) — check the hooks are installed"]
 
 
 ACCEPT = re.compile(r"^D\d+ \S+ .*unverified accepted:(.*)$", re.M)
@@ -339,7 +376,8 @@ def main():
     if head.get("trello", "none") not in ("none", "—", "") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
         missing.append("Trello card linked but no `trello` log line")
 
-    quick = head.get("mode") == "quick"
+    tier = tier_of(head)
+    quick = tier == "quick"  # standard closes like full: its extra guards are approval-time (plan-set)
     lessons_p = os.path.join(store, "lessons.md")
     lessons = open(lessons_p, encoding="utf-8").read() if os.path.exists(lessons_p) else ""
     if not quick and not re.search(rf"^- ?\d{{4}}-\d\d-\d\d {re.escape(slug)} \S+ \| steps ", lessons, re.M):
@@ -370,7 +408,8 @@ def main():
         missing.append("overview.md has no ## Final report (what was done, how verified, decisions, follow-ups)")
     missing += overview_problems(ov, goal)
     missing += commit_problems(goal, head)
-    missing += hunt_problems(log, head, quick)
+    missing += hunt_problems(log, head, tier)
+    missing += heartbeat_problems(goal, log)
 
     # the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
     # The hook writes the final spend to the header after close-check, so judge by this run's own

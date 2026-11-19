@@ -41,6 +41,7 @@ class CloseBase(Base):
             f"- {datetime.date.today()} demo build | steps 1 | tokens est S / ~0k\n")
         open(os.path.join(self.store, "profile.md"), "w", encoding="utf-8").write("repo facts\n")
         open(os.path.join(self.home, ".claude", "mama", "patterns.md"), "a", encoding="utf-8").write("# How you work\n")
+        open(os.path.join(g, ".heartbeat"), "w", encoding="utf-8").write("2026-11-19T10:00:00 0k\n")  # the Stop hook ran
         return g
 
     def test_bug_hunt_must_end_clean(self):
@@ -49,14 +50,15 @@ class CloseBase(Base):
         self.run_s("log.py", log, "E", "hunt 2: 4 found, 2 real, 2 fixed — /code-review high")
         out = self.close(g, ok=False)
         self.assertIn("the last bug hunt (round 2) found 2 real bug(s)", out)
-        self.run_s("log.py", log, "E", "hunt 3: 1 found, 0 real, 0 fixed — /code-review high")
+        self.run_s("log.py", log, "D", "hunt: extra round, one more low pass (tag: user)")  # round 2 was the full cap
+        self.run_s("log.py", log, "E", "hunt 3: 1 found, 0 real, 0 fixed — /code-review low")
         out = self.close(g, ok=True)
         self.assertIn("hunt rounds 3 (real bugs 2)", out)  # metrics draft
 
     def test_known_issues_accepted_by_the_user_close(self):
         g = self.ready_goal()
         log = os.path.join(g, "log.md")
-        self.run_s("log.py", log, "E", "hunt 4: 3 found, 1 real, 0 fixed — /code-review high")
+        self.run_s("log.py", log, "E", "hunt 2: 3 found, 1 real, 0 fixed — /code-review high")
         self.close(g, ok=False)
         self.run_s("log.py", log, "D", "deliver with 1 known issue listed in the report (tag: user)")
         self.assertIn("known issue", self.read(log))
@@ -74,10 +76,122 @@ class CloseBase(Base):
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 1 fixed: 2 of 2, commit abc")
         self.close(g, ok=True)
 
+    def set_tier(self, g, tier):
+        """A `tier:` header field after `mode:` (missing on old goals)."""
+        p = self.plan(g)
+        s = self.read(p)
+        if re.search(r"\btier: ", s):  # new goals carry one already
+            s = re.sub(r"\btier: [^|\n]*?(?= \||\n)", f"tier: {tier}", s, count=1)
+        else:
+            s = re.sub(r"(mode: [^|\n]*?)( \||\n)", rf"\1 | tier: {tier}\2", s, count=1)
+        open(p, "w", encoding="utf-8").write(s)
+
+    def fresh_hunt(self, g, *lines):
+        """Replace the log's hunt lines with these (kind, text) lines, in order."""
+        log = os.path.join(g, "log.md")
+        s = re.sub(r"(?m)^E\d+ \S+ hunt .*\n", "", self.read(log))
+        open(log, "w", encoding="utf-8").write(s)
+        for kind, text in lines:
+            self.run_s("log.py", log, kind, text)
+
     def test_full_goal_hunts_with_code_review_high(self):
         g = self.ready_goal()
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 2: 0 found, 0 real, 0 fixed — /code-review low")
-        self.assertIn("hunt round 2 used a light /code-review", self.close(g, ok=False))
+        self.fresh_hunt(g, ("E", "hunt 1: 0 found, 0 real, 0 fixed — /code-review low"))
+        self.assertIn("hunt round 1 used a light /code-review", self.close(g, ok=False))
+
+    def test_rounds_after_the_first_may_be_low(self):
+        # failing-first: test_rounds_after_the_first_may_be_low
+        g = self.ready_goal()
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 1 real, 1 fixed — /code-review high"),
+                        ("E", "hunt 2: 1 found, 0 real, 0 fixed — /code-review low"))
+        self.close(g, ok=True)
+
+    def test_standard_goal_hunts_round_one_high(self):
+        g = self.ready_goal()
+        self.set_tier(g, "standard")
+        self.fresh_hunt(g, ("E", "hunt 1: 0 found, 0 real, 0 fixed — /code-review low"))
+        self.assertIn("hunt round 1 used a light /code-review", self.close(g, ok=False))
+
+    def test_trade_offs_are_not_real_bugs(self):
+        g = self.ready_goal()
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 0 real, 0 fixed, 1 minor, 2 trade-off — /code-review high"))
+        self.close(g, ok=True)
+
+    def test_rounds_past_the_cap_need_the_users_ok(self):
+        # failing-first: test_rounds_past_the_cap_need_the_users_ok
+        g = self.ready_goal()
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 2 real, 2 fixed — /code-review high"),
+                        ("E", "hunt 2: 2 found, 1 real, 1 fixed — /code-review low"),
+                        ("D", "hunt: extra round, one more low pass (tag: user)"),
+                        ("E", "hunt 3: 0 found, 0 real, 0 fixed — /code-review low"))
+        self.close(g, ok=True)  # round 3 had the user's OK
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 4: 0 found, 0 real, 0 fixed — /code-review low")
+        out = self.close(g, ok=False)  # one OK buys one round
+        self.assertIn("round 4 is past the full cap of 2 without the user's OK", out)
+        self.assertNotIn("round 3 is past", out)
+
+    def test_extra_round_ok_must_come_from_the_user_before_the_round(self):
+        # failing-first: test_extra_round_ok_must_come_from_the_user_before_the_round
+        g = self.ready_goal()
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 1 real, 1 fixed — /code-review high"),
+                        ("E", "hunt 2: 2 found, 1 real, 1 fixed — /code-review low"),
+                        ("D", "hunt: extra round, one more low pass (tag: auto)"),
+                        ("E", "hunt 3: 0 found, 0 real, 0 fixed — /code-review low"),
+                        ("D", "hunt: extra round, one more low pass (tag: user)"))
+        self.assertIn("round 3 is past the full cap of 2 without the user's OK", self.close(g, ok=False))
+
+    def test_standard_and_quick_cap_at_one_round(self):
+        # failing-first: test_standard_and_quick_cap_at_one_round
+        g = self.ready_goal()
+        self.set_tier(g, "standard")
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 1 real, 1 fixed — /code-review high"),
+                        ("E", "hunt 2: 0 found, 0 real, 0 fixed — /code-review low"))
+        self.assertIn("round 2 is past the standard cap of 1 without the user's OK", self.close(g, ok=False))
+        p = self.plan(g)
+        s = self.read(p).replace("tier: standard", "tier: quick")
+        open(p, "w", encoding="utf-8").write(s)
+        self.assertIn("round 2 is past the quick cap of 1 without the user's OK", self.close(g, ok=False))
+
+    def test_cap_round_with_real_bugs_closes_with_deliver_decision(self):
+        g = self.ready_goal()
+        self.set_tier(g, "standard")
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 1 real, 1 fixed — /code-review high"))
+        self.assertIn("the last bug hunt (round 1) found 1 real bug(s)", self.close(g, ok=False))
+        self.run_s("log.py", os.path.join(g, "log.md"), "D", "hunt: deliver with known issues listed in the report (tag: user)")
+        self.close(g, ok=True)
+
+    def test_tier_picks_the_close_requirements(self):
+        # failing-first: test_tier_picks_the_close_requirements
+        g = self.ready_goal()
+        os.remove(os.path.join(self.store, "lessons.md"))
+        self.set_tier(g, "standard")
+        self.assertIn("no metrics line for demo", self.close(g, ok=False))  # standard closes like full
+        p = self.plan(g)
+        s = self.read(p).replace("tier: standard", "tier: quick")
+        open(p, "w", encoding="utf-8").write(s)
+        self.close(g, ok=True)  # quick: no lessons line, mode autonomous notwithstanding
+        s = re.sub(r" ?\|? tier: quick", "", self.read(p))
+        open(p, "w", encoding="utf-8").write(s)
+        self.assertIn("no metrics line for demo", self.close(g, ok=False))  # no tier: full
+
+    def test_quick_round_one_is_low(self):
+        g = self.ready_goal()
+        self.set_tier(g, "quick")
+        self.fresh_hunt(g, ("E", "hunt 1: 0 found, 0 real, 0 fixed — /code-review low"))
+        self.close(g, ok=True)
+
+    def test_dispatch_without_a_heartbeat_means_no_stop_hook(self):
+        # failing-first: test_dispatch_without_a_heartbeat_means_no_stop_hook
+        g = self.ready_goal()
+        os.remove(os.path.join(g, ".heartbeat"))
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 — build")
+        msg = "the Stop hook never ran for this goal (no .heartbeat) — check the hooks are installed"
+        self.assertIn(msg, self.close(g))
+        open(os.path.join(g, ".heartbeat"), "w", encoding="utf-8").write("2026-11-19T10:00:00 12k\n")
+        self.assertNotIn(msg, self.close(g))
+
+    def test_no_dispatch_needs_no_heartbeat(self):
+        self.assertNotIn(".heartbeat", self.close(self.ready_goal(), ok=True))
 
     def test_push_before_the_hunt_refused_until_pushed_again(self):
         g = self.ready_goal()
@@ -314,6 +428,20 @@ class Overview(CloseBase):
         self.assertIn("(S1)", out[0])
         self.assertEqual(cc.overview_problems("S1 and E2 done", None), [])  # no goal: IDs unchecked
         self.assertEqual(cc.overview_problems("`S1` in code, S1x, S1-alpha", g), [])
+
+    def test_checks_cover_the_generated_block(self):
+        g = self.ready_goal()
+        ov = os.path.join(g, "overview.md")
+        block = "<!-- mama:auto:start -->\n**Status:** Done\n\n## Timeline\n{}<!-- mama:auto:end -->\n"
+        open(ov, "w", encoding="utf-8").write(
+            "# Demo\n\n" + block.format("- 10:00 S1 finished\n") + "\n## Final report\n\nok\n")
+        self.assertIn("internal IDs (S1)", self.close(g, ok=False))
+        open(ov, "w", encoding="utf-8").write(
+            "# Demo\n\n" + block.format("- 10:00 a part finished\n" * 60) + "\n## Final report\n\nok\n")
+        self.assertIn("keep it to one screen", self.close(g, ok=False))
+        open(ov, "w", encoding="utf-8").write(
+            "# Demo\n\n" + block.format("- 10:00 the build finished\n") + "\n## Final report\n\nok\n")
+        self.close(g, ok=True)
 
     def test_close_reports_known_ids(self):
         g = self.ready_goal()
