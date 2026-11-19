@@ -8,7 +8,8 @@ generated block: regenerate() rewrites only what is between them, from state:
   ## Timeline         the goal's start, the plan approval, and every `U` log line (last 12 rows)
   ## Where we are     n of m parts, what is being worked on, what is ready next
   ## Needs your input only while waiting: the last open question
-Step titles stand in for step IDs; IDs and file:line refs are dropped from any text shown.
+Step titles stand in for step IDs; this goal's IDs (plan steps and criteria, log lines) and
+file:line refs are dropped from any text shown — other ID-shaped words (S3, Q4) are kept.
 Everything outside the markers (title, Goal, Key decisions, Final report …) is hand-written.
 An overview without the markers (goals from before them) gets only its Status line synced.
 The overview's mtime is kept either way, so the hand-written prose still counts as unrefreshed.
@@ -59,10 +60,18 @@ def merged(old, new):
     return new
 
 
-def plain(text):
-    """Text fit for the user: no step/log IDs, no file:line refs, no `@HH:MM` stamps."""
+def goal_ids(plan, logtext):
+    """The IDs this goal uses: step and criterion rows in plan.md, E/D/F/Q/U lines in log.md."""
+    return (set(re.findall(r"^\| *([SC]\d+[a-z]?) *\|", plan, re.M))
+            | set(re.findall(r"^([EDFQU]\d+) ", logtext, re.M)))
+
+
+def plain(text, ids=frozenset()):
+    """Text fit for the user: none of this goal's IDs (`ids`), no file:line refs, no `@HH:MM`
+    stamps. A word shaped like an ID that the goal doesn't use ("Upload to S3") stays."""
     text = FILE_LINE.sub("", text.replace("\\|", "|"))
-    text = ID.sub("", re.sub(r"\s*@\s?\d\d:\d\d\b", "", text))
+    text = ID.sub(lambda m: "" if m.group(0) in ids else m.group(0),
+                  re.sub(r"\s*@\s?\d\d:\d\d\b", "", text))
     text = re.sub(r"\(\s*[,;]?\s*\)", "", text)
     text = re.sub(r"\s+([,.;:)])", r"\1", " ".join(text.split()))
     return text.strip(" ,;·-—")
@@ -73,19 +82,19 @@ def _rows(plan, section):
     return [dict(zip(hdr, r)) for r in rows]
 
 
-def done_means(plan):
+def done_means(plan, ids):
     out = []
     for c in _rows(plan, "Criteria"):
-        crit = plain(c.get("criterion", ""))
+        crit = plain(c.get("criterion", ""), ids)
         if not crit:
             continue
         ev = c.get("evidence", "").strip()
-        ev = "" if ev in ("", "—", "-") else plain(ev)
+        ev = "" if ev in ("", "—", "-") else plain(ev, ids)
         out.append(f"- [x] {crit} — {ev}" if ev else f"- [ ] {crit}")
     return out or ["- [ ] Set when the plan is ready"]
 
 
-def timeline(plan, logtext):
+def timeline(plan, logtext, ids):
     start = clock.start_of(plan)
     lines = log.timeline(logtext, start)
     rows = []
@@ -97,7 +106,7 @@ def timeline(plan, logtext):
     approved = next((e for e in lines if e[1] == "E" and re.match(r"approved?\b", e[3])), None)
     if approved:
         rows.append((approved[0], "Plan approved"))
-    rows += [(e[0], plain(e[3])) for e in lines if e[1] == "U" and plain(e[3])]
+    rows += [(e[0], plain(e[3], ids)) for e in lines if e[1] == "U" and plain(e[3], ids)]
     rows.sort(key=lambda r: r[0])
     if len(rows) > TIMELINE_ROWS:
         rows = rows[:1] + rows[-(TIMELINE_ROWS - 1):]  # the start, then the latest
@@ -108,12 +117,12 @@ def timeline(plan, logtext):
     return out
 
 
-def where(plan):
+def where(plan, ids):
     allrows = _rows(plan, "Steps")
     steps = [s for s in allrows if s.get("status") not in SKIP and s.get("title")]
     done = {s["id"] for s in steps if s.get("status") in FINISHED}
     dropped = {s["id"] for s in allrows if s.get("status") == "obsolete"}
-    title = lambda s: plain(s["title"]) or "a step"
+    title = lambda s: plain(s["title"], ids) or "a step"
     out = []
     if steps:
         out.append(f"{len(done)} of {len(steps)} parts done.")
@@ -130,7 +139,7 @@ def where(plan):
     return [" ".join(out) or "Planning: research and questions come first."]
 
 
-def open_question(logtext):
+def open_question(logtext, ids):
     """The text of the last question no decision refers to, or None."""
     qs = list(re.finditer(r"^Q(\d+) \d\d:\d\d (.*)$", logtext, re.M))
     for m in reversed(qs):
@@ -139,17 +148,18 @@ def open_question(logtext):
             continue  # a later decision answers it
         parts = [p.strip() for p in re.split(r"(?<!\\)\|", text)]
         q = parts[1] if len(parts) > 1 and parts[0].lower() == "question" else parts[0]
-        return plain(q) or None
+        return plain(q, ids) or None
     return None
 
 
 def block(plan, logtext, old_status):
+    ids = goal_ids(plan, logtext)
     out = [merged(old_status, status_line(plan)) if old_status else status_line(plan), "",
-           "## Done means", "", *done_means(plan), "",
-           "## Timeline", "", *timeline(plan, logtext), "",
-           "## Where we are", "", *where(plan)]
+           "## Done means", "", *done_means(plan, ids), "",
+           "## Timeline", "", *timeline(plan, logtext, ids), "",
+           "## Where we are", "", *where(plan, ids)]
     st = re.search(r"status: (\w+)", plan.split("\n## ")[0])
-    q = open_question(logtext) if st and st.group(1) == "waiting" else None
+    q = open_question(logtext, ids) if st and st.group(1) == "waiting" else None
     if q:
         out += ["", "## Needs your input", "", f"- {q}"]
     return "\n".join(out)

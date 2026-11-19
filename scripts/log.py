@@ -6,6 +6,8 @@ Usage: log.py [--no-record] <log.md> <E|D|F|Q|U> "<text>"
   log.py log.md D "decision | Q1 output | react-markdown | why: ... | tag: user"
   log.py log.md F "finding | <claim> | <file:line> | verified"
   log.py log.md U "Filter API done and tested"    # a user-facing Timeline row in overview.md
+A U line also regenerates overview.md's generated block (its mtime kept, as plan writes do); a
+failure there never fails the log write.
 Prints the line written; a `wait` line identical to the last line is not written again. IDs and times are never typed by hand, so they can't drift.
 Lines carry only HH:MM: when the date differs from the log's last date (or the plan's `started:`
 date, for the first line), a marker `-- YYYY-MM-DD` is written first (see clock.py).
@@ -50,7 +52,18 @@ def write(path, kind, text, record=True, now=None):
         f.write("\n".join(out) + "\n")
     if record:
         activity.record(os.path.dirname(os.path.abspath(path)))
+    if kind == "U":
+        _refresh_overview(os.path.dirname(os.path.abspath(path)))
     return line
+
+
+def _refresh_overview(goal):
+    """Show the new U line in the overview's Timeline now, not at the next plan write."""
+    try:
+        import overview  # here, not at the top: overview imports this module
+        overview.regenerate(goal)
+    except Exception:
+        pass  # the line is written; the overview catches up at the next plan write
 
 
 def last_date(path, content):

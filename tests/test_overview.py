@@ -113,6 +113,14 @@ class Regenerate(Base):
         for tok in ("S1", "S2", "S3", "C1", "E3", "Q1", "U1", "a.go:12"):
             self.assertNotRegex(b, rf"\b{re.escape(tok)}\b", tok)
 
+    def test_keeps_words_shaped_like_ids(self):  # failing-first: test_keeps_words_shaped_like_ids
+        log = LOG + "U2 11:00 Upload images to S9\nU3 11:05 Q4 report and P1 plan sent\n"
+        g = self.goal(log=log)
+        overview.regenerate(g)
+        tl = self.block(g).split("## Timeline")[1]
+        self.assertIn("Upload images to S9", tl)
+        self.assertIn("Q4 report and P1 plan sent", tl)
+
     def test_needs_input_when_waiting(self):  # failing-first: test_needs_input_when_waiting
         g = self.goal(status="waiting")
         overview.regenerate(g)
@@ -194,6 +202,28 @@ class UserLines(Base):
         self.assertRegex(b, r"\| \d\d:\d\d \| Research done")
         self.assertRegex(b, r"\| \d\d:\d\d \| Started")
 
+    def test_u_line_refreshes_overview(self):  # failing-first: test_u_line_refreshes_overview
+        g = self.new_goal()
+        ov = os.path.join(g, "overview.md")
+        open(ov, "w", encoding="utf-8").write(f"# T\n\n{START}\n{END}\n")
+        os.utime(ov, (1000000, 1000000))
+        self.run_s("log.py", os.path.join(g, "log.md"), "U", "Research done")
+        self.assertRegex(self.read(ov), r"\| \d\d:\d\d \| Research done")
+        self.assertAlmostEqual(os.path.getmtime(ov), 1000000, delta=1)
+
+    def test_u_line_written_when_overview_fails(self):
+        g = self.new_goal()
+        import log as logmod
+        orig = overview.regenerate
+        def boom(goal):
+            raise RuntimeError("boom")
+        overview.regenerate = boom
+        try:
+            line = logmod.write(os.path.join(g, "log.md"), "U", "Still logged")
+        finally:
+            overview.regenerate = orig
+        self.assertRegex(line, r"^U1 \d\d:\d\d Still logged$")
+        self.assertIn("Still logged", self.read(os.path.join(g, "log.md")))
 
 
 class NewGoalKeepsMarkers(Base):
