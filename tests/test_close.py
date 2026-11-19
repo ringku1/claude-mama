@@ -169,7 +169,16 @@ class CloseBase(Base):
         self.assertIn("S1", cc.step_ids("E dispatch S1-20261119", known))  # no S on the end: its ends only
         self.assertEqual(cc.step_ids("see S1-S20261119", known), {"S1", "S20261119"})  # past the plan: its ends
         self.assertEqual(cc.step_ids("S4-S2", known), {"S4", "S2"})  # backwards: its ends
+        self.assertEqual(cc.step_ids("accepted: S2-4", known), {"S2", "S3", "S4"})  # bare end in the plan
+        self.assertEqual(cc.step_ids("E dispatch S1-20261119", known), {"S1", "20261119"})
         self.assertLess(time.time() - t, 0.5)
+
+    def test_range_upper_end_takes_its_lettered_steps(self):
+        cc = load_cc()
+        known = ["S2", "S3", "S4", "S4a", "S4b", "S5"]
+        self.assertEqual(cc.step_ids("S2-S4", known), {"S2", "S3", "S4", "S4a", "S4b"})
+        self.assertEqual(cc.step_ids("S2-4", known), {"S2", "S3", "S4", "S4a", "S4b"})
+        self.assertEqual(cc.step_ids("S3-S4a", known), {"S3", "S4", "S4a"})
 
     def test_unverified_fix_step_needs_a_failing_first_test(self):
         g = self.ready_goal()
@@ -400,12 +409,36 @@ class SpendDeadline(Base):
         g, t = self.goal_with_spend()
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 — build")
         self.assertIn("budget: ~0k", self.read(self.plan(g)))  # the hook writes the header after close-check
-        self.assertNotIn("budget still ~0k", self.close_check(g))  # measured 2000k: work was counted
+        self.assertNotIn("no spend measured", self.close_check(g))  # measured 2000k: work was counted
         os.remove(os.path.join(g, ".spend-cache.json"))
-        self.assertNotIn("budget still ~0k", self.close_check(g, MAMA_SPEND_DEADLINE="0"))  # cut: not judged
+        self.assertNotIn("no spend measured", self.close_check(g, MAMA_SPEND_DEADLINE="0"))  # cut: not judged
         os.remove(t)
         os.remove(os.path.join(g, ".spend-cache.json"))
-        self.assertIn("budget still ~0k", self.close_check(g))  # measured nothing though work ran
+        self.assertIn("no spend measured", self.close_check(g))  # measured nothing though work ran
+
+    def test_git_checks_run_before_the_spend_measure(self):
+        """The spend measure may use time up to the hook's deadline, so the git checks go first."""
+        g, t = self.goal_with_spend()
+        self.run_s("plan-set.py", self.plan(g), "--header", "base=main", "branch=feat/x")
+        real = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
+        bin_, stamps = os.path.join(self.tmp, "bin"), os.path.join(self.tmp, "git-calls")
+        os.makedirs(bin_)
+        with open(os.path.join(bin_, "git"), "w", encoding="utf-8") as f:
+            f.write(f'#!/bin/sh\n{sys.executable} -c "import time; print(time.time())" >> {stamps}\nexec {real} "$@"\n')
+        os.chmod(os.path.join(bin_, "git"), 0o755)
+        self.close_check(g, PATH=bin_ + os.pathsep + os.environ["PATH"])
+        with open(stamps, encoding="utf-8") as f:
+            last_git = max(float(l) for l in f if l.strip())
+        self.assertLess(last_git, os.path.getmtime(os.path.join(g, ".spend-cache.json")))
+
+    def test_no_spend_message_names_the_measure(self):
+        g, t = self.goal_with_spend()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 — build")
+        self.run_s("plan-set.py", self.plan(g), "--header", "budget=~50k / S")
+        os.remove(t)
+        out = self.close_check(g)
+        self.assertIn("no spend measured though work ran", out)
+        self.assertNotIn("budget still ~0k", out)
 
     def test_by_hand_reads_it_all(self):
         g, t = self.goal_with_spend()

@@ -191,18 +191,25 @@ def _key(sid):
 
 
 def step_ids(text, known):
-    """Step ids a log line names. A range (S on both ends: S2-S4, S6a-S6c, an en dash too) expands
-    to the plan's own step ids (known) between its ends; a range with an end that isn't a plan step,
-    no S on its end, or ends backwards counts as its literal ends only (S1-20261119 is S1)."""
+    """Step ids a log line names. A range (S2-S4, S2-4, S6a-S6c, an en dash too) expands to the plan's
+    own step ids (known) between its ends, an upper end without a letter taking its lettered steps
+    (S2-S4 takes S4a); a bare-number end is S<n> only when that is a plan step. A range with an end
+    that isn't a plan step, or ends backwards, counts as its literal ends only (S1-20261119 is S1)."""
     keys = [(k, sid) for sid in known for k in [_key(sid)] if k]
     out = set()
     for lo, hi in STEP_REF.findall(text):
         out.add(lo)
         if not hi:
             continue
-        out.add(hi)
-        if lo in known and hi in known and hi.startswith("S") and _key(lo) <= _key(hi):
-            out.update(sid for k, sid in keys if _key(lo) <= k <= _key(hi))
+        end = hi if hi.startswith("S") else "S" + hi
+        if end not in known:
+            out.add(hi)
+            continue
+        out.add(end)
+        top = _key(end)
+        if lo in known and _key(lo) <= top:
+            top = top if top[1] else (top[0], "\uffff")  # S2-S4 takes S4a, S4b
+            out.update(sid for k, sid in keys if _key(lo) <= k <= top)
     return out
 
 
@@ -311,13 +318,6 @@ def main():
         if junk:
             missing.append(f"{name} still has template placeholders ({', '.join(sorted(set(junk))[:3])})")
 
-    # the Stop hook writes the final spend to the header after close-check, so judge by this run's own
-    # measure; a measure the hook's deadline cut proves nothing, so that run skips the check
-    measured, cut = measured_spend(goal, head)
-    no_spend = (measured is not None and measured < 500) if measured is not None else re.search(r"budget: ~0k", plan)
-    if not cut and no_spend and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
-        missing.append("budget still ~0k though work ran — the Stop hook writes it; run scripts/spend.py <transcript> <plan> --write")
-
     chdr, crit = estimate.table(plan, "Criteria")
     ci = {k: i for i, k in enumerate(chdr)}
     for c in crit:
@@ -363,6 +363,15 @@ def main():
     missing += overview_problems(ov, goal)
     missing += commit_problems(goal, head)
     missing += hunt_problems(log, head, quick)
+
+    # after the git checks: the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
+    # The hook writes the final spend to the header after close-check, so judge by this run's own
+    # measure; a measure the hook's deadline cut proves nothing, so that run skips the check
+    measured, cut = measured_spend(goal, head)
+    no_spend = measured < 500 if measured is not None else bool(re.search(r"budget: ~0k", plan))
+    if not cut and no_spend and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
+        missing.append("no spend measured though work ran — the Stop hook writes it; run "
+                       "scripts/spend.py <transcript> <plan> --write")
 
     if not quick and not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
