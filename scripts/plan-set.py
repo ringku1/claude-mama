@@ -13,7 +13,8 @@ Row columns are matched by the table's header. Header fields are the `key: value
 pairs in the lines above the first section. Prints what changed and the progress line.
 
 Guards (they enforce the skill's rules, so state can't drift):
-- a step set to running/testing/fixing gets start=now if empty; done/obsolete gets end=now if empty
+- a step set to running/testing/fixing gets start=now if empty; done/unverified/obsolete gets end=now if empty
+- `unverified` (its verify couldn't run here) counts as finished: progress, deps, estimate, never running
 - a step set to running whose deps aren't done prints a WARNING
 - header status approved/running needs mode checkpointed|autonomous|quick (ask the user); the first
   approval of a full goal also needs `E research`, `E expectations` and `E playback` log lines — a
@@ -28,6 +29,11 @@ Guards (they enforce the skill's rules, so state can't drift):
   deleted (set status=obsolete with a reason in notes)
 - first switch to running with a linked Trello card and no `trello` log line prints a REMINDER
 - `now` stamps the real HH:MM in any row, added ones too; S+/C+ fill the template's blank row first
+- a step set to done/unverified while a criterion it proves (`proven by`) has no evidence prints a
+  WARNING with the plan-set command to fill it
+- after a step-row change it prints `budget: <pct>% of <ceiling>` from spend.measure, with a WARNING
+  at 70% (rules/loop.md → Budget) — never a refusal; nothing when spend can't be measured; the
+  header's spend is still the Stop hook's to write
 - the whole read → edit → write holds fileio.plan_lock (the Stop hook writes the budget under it too)
 
 After every write it syncs overview.md's **Status:** line (scripts/overview.py) and, on a
@@ -47,7 +53,7 @@ import activity  # noqa: E402
 import fileio  # noqa: E402
 import overview  # noqa: E402
 import spend  # noqa: E402
-from estimate import expand, split_row, summary  # noqa: E402
+from estimate import FINISHED, expand, fmt, split_row, summary  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
@@ -104,11 +110,11 @@ def apply_updates(lines, rows, header, vals, row_id, updates):
         if st in ("running", "testing", "fixing") and "start" in col and not vals[col["start"]]:
             vals[col["start"]] = NOW()
             stamped.add("start")
-        if st in ("done", "obsolete") and "end" in col and not vals[col["end"]]:
+        if (st in FINISHED or st == "obsolete") and "end" in col and not vals[col["end"]]:
             vals[col["end"]] = NOW()
             stamped.add("end")
         if st == "running" and "deps" in col:
-            done = {cells(lines[r])[0] for r in rows if cells(lines[r])[col["status"]] in ("done", "obsolete")}
+            done = {cells(lines[r])[0] for r in rows if cells(lines[r])[col["status"]] in FINISHED | {"obsolete"}}
             open_deps = [d for d in expand(vals[col["deps"]]) if d not in done]
             if open_deps:
                 print(f"WARNING: {row_id} started before its deps are done: {', '.join(open_deps)}")
@@ -144,7 +150,7 @@ def set_row(lines, section, row_id, updates):
     if "status" not in header or not new or new == before:
         return False
     starred = "notes" in header and "★" in vals[header.index("notes")]
-    return new in MILESTONE_STEP or (new == "done" and starred)
+    return new in MILESTONE_STEP or (new in FINISHED and starred)
 
 
 def add_row(lines, section, prefix, updates):
@@ -348,7 +354,7 @@ def progress(lines):
     si = header.index("status")
     live = [cells(lines[r])[si] for r in rows]
     live = [s for s in live if s not in LIVE_EXCLUDED]
-    done = sum(s == "done" for s in live)
+    done = sum(s in FINISHED for s in live)
     blocked = sum(s == "blocked" for s in live)
     pct = round(100 * done / len(live)) if live else 0
     for j, l in enumerate(lines):
@@ -374,6 +380,42 @@ def main():
     est = summary("\n".join(lines), path)
     if est and what != "--header":
         print(est)
+    if what.startswith("S"):
+        budget_line(path, lines)
+
+
+def budget_line(path, lines):
+    """`budget: <pct>% of <ceiling>` from the measured spend; a WARNING from 70%. Never refuses, and
+    prints nothing when spend can't be measured (no session, no ceiling, any error)."""
+    try:
+        c = spend.ceiling(header_value(lines, "budget").split("/")[-1].strip())
+        total = spend.measure(path)
+        if not c or total is None:
+            return
+        pct = round(100 * total / c)
+        out = f"budget: {pct}% of {fmt(c)}"
+        if pct >= 70:
+            out += (" — WARNING: past 70% of the ceiling; follow rules/loop.md → Budget "
+                    "(cut scope, or ask the user before raising the size)")
+        print(out)
+    except Exception:
+        pass
+
+
+def evidence_due(lines, path, step):
+    """WARNING for each criterion this finished step proves that still has no evidence."""
+    try:
+        header, rows = table(lines, "## Criteria")
+    except SystemExit:
+        return
+    if "proven by" not in header or "evidence" not in header:
+        return
+    pb, ev = header.index("proven by"), header.index("evidence")
+    for r in rows:
+        vals = cells(lines[r]) + [""] * len(header)
+        if step in expand(vals[pb]) and vals[ev] in ("", "—", "-"):
+            print(f"WARNING: {vals[0]} is proven by {step} but has no evidence yet — record it: "
+                  f'plan-set.py {path} {vals[0]} "evidence=<what proved it> @HH:MM"')
 
 
 def edit(path, what, updates):
@@ -396,6 +438,8 @@ def edit(path, what, updates):
         set_row(lines, "## Criteria", what, updates)
     elif what.startswith("S"):
         milestone = set_row(lines, "## Steps", what, updates)
+        if updates.get("status") in FINISHED:
+            evidence_due(lines, path, what)
     else:
         sys.exit(f"unknown target {what!r}")
     progress(lines)

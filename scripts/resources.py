@@ -49,7 +49,8 @@ def free_ram_gb():
 
 
 def others_running(store, own):
-    """Steps other goals in this store are running right now."""
+    """Steps other goals in this store are running right now (running/testing/fixing; never a
+    finished one — done, unverified — nor todo/blocked/obsolete/parked)."""
     n = 0
     for plan in glob.glob(os.path.join(store, "*", "plan.md")):
         if os.path.basename(os.path.dirname(plan)) == own:

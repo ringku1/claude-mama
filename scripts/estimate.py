@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fileio  # noqa: E402,F401  (UTF-8 output)
 
 SKIP = {"obsolete", "parked"}
+FINISHED = {"done", "unverified"}  # unverified: its verify couldn't run here; finished all the same
 
 
 def expand(deps):
@@ -41,7 +42,7 @@ def minutes(est):
 
 def critical_path(steps, left=False):
     """steps: [(id, deps, est, status)]. Longest chain of dependent steps, in minutes.
-    left=True: done steps count 0 (the time still to go). Obsolete/parked steps are skipped;
+    left=True: finished (done/unverified) steps count 0 (the time still to go). Obsolete/parked steps are skipped;
     a dependency cycle is cut instead of looping."""
     live = {s[0]: s for s in steps if s[3] not in SKIP}
     memo, active = {}, set()
@@ -53,7 +54,7 @@ def critical_path(steps, left=False):
             return 0
         active.add(sid)
         _, deps, est, status = live[sid]
-        own = 0 if left and status == "done" else minutes(est)
+        own = 0 if left and status in FINISHED else minutes(est)
         memo[sid] = own + max((chain(d) for d in expand(deps) if d in live), default=0)
         active.discard(sid)
         return memo[sid]
@@ -63,7 +64,7 @@ def critical_path(steps, left=False):
 
 def width(steps, left=False):
     """How many steps can run at once if each starts as soon as its deps finish."""
-    live = {s[0]: s for s in steps if s[3] not in SKIP and not (left and s[3] == "done")}
+    live = {s[0]: s for s in steps if s[3] not in SKIP and not (left and s[3] in FINISHED)}
     finish, active = {}, set()
 
     def end(sid):
@@ -88,7 +89,7 @@ def width(steps, left=False):
 
 
 def total(steps, left=False):
-    return sum(minutes(s[2]) for s in steps if s[3] not in SKIP and not (left and s[3] == "done"))
+    return sum(minutes(s[2]) for s in steps if s[3] not in SKIP and not (left and s[3] in FINISHED))
 
 
 def split_row(line):

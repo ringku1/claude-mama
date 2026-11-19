@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """plan-set.py guards: lock, budget forms, approval ceiling, midnight, PR values. Run: python3 tests/test_plan.py"""
+import datetime
+import json
 import os
 import re
 import subprocess
@@ -258,6 +260,107 @@ class Tokens(PlanBase):
         self.ps("S+", "title=c", "verify=v", "est=5m")
         self.assertIn("tokens likely ~450k (3 steps", self.ps("S3", "notes=n"))
         self.assertIn("over the budget size S", self.ps("S3", "notes=m"))
+
+
+class Unverified(PlanBase):
+    """`unverified`: the verify couldn't run here; the step is finished like done."""
+
+    def test_counts_as_finished(self):
+        self.ps("S1", "est=10m")
+        self.ps("S+", "title=b", "verify=v", "deps=S1", "est=5m")
+        self.ps("S1", "status=running")
+        out = self.ps("S1", "status=unverified")
+        self.assertRegex(self.row(), r"\| unverified \| .* \| \d\d:\d\d \| \d\d:\d\d \|")  # end stamped
+        self.assertIn("progress: 1/2 (50%)", out)
+        self.assertIn("left 5m", out)
+        out = self.ps("S2", "status=running")
+        self.assertNotIn("WARNING", out)
+
+    def test_never_running_for_resources(self):
+        other = self.new_goal("other")
+        po = self.plan(other)
+        self.run_s("plan-set.py", po, "S+", "title=a", "verify=v")
+        self.run_s("plan-set.py", po, "S+", "title=b", "verify=v")
+        text = self.read(po)
+        text = re.sub(r"status: \w+", "status: running", text, count=1)
+        text = re.sub(r"^\| S1 (.*)\| todo \|", r"| S1 \1| unverified |", text, flags=re.M)
+        text = re.sub(r"^\| S2 (.*)\| todo \|", r"| S2 \1| running |", text, flags=re.M)
+        open(po, "w", encoding="utf-8").write(text)
+        out = self.run_s("resources.py", "4", self.store, "demo")
+        self.assertIn("other_goals_running_steps=1", out)
+
+
+def usage_line(tokens):
+    t = datetime.datetime.now()
+    return json.dumps({"message": {"id": "m%d" % tokens, "type": "message", "role": "assistant", "content": [],
+                                   "usage": {"input_tokens": tokens, "cache_creation_input_tokens": 0,
+                                             "output_tokens": 0}},
+                       "type": "assistant", "uuid": "u%d" % tokens, "timestamp": utc(t)},
+                      separators=(",", ":")) + "\n"
+
+
+class SpendLine(PlanBase):
+    """After a step-row change plan-set prints the measured spend against the ceiling."""
+
+    def spent(self, tokens, mode="w"):
+        d = os.path.join(self.home, ".claude", "projects", "p")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "sess-a.jsonl"), mode, encoding="utf-8") as f:
+            f.write(usage_line(tokens))
+
+    def test_under_70_no_warning(self):
+        self.ps("--header", "budget=S")
+        self.spent(150_000)
+        out = self.ps("S1", "notes=x")
+        self.assertRegex(out, r"(?m)^budget: 50% of ")
+        self.assertNotIn("WARNING", out)
+        self.assertIn("budget: ~0k / S", self.read(self.p))  # the Stop hook writes the header, not plan-set
+
+    def test_at_70_warns_past_100_still_only_warns(self):
+        self.ps("--header", "budget=S")
+        self.spent(240_000)
+        out = self.ps("S1", "notes=x")
+        self.assertRegex(out, r"(?m)^budget: 80% of .* — WARNING: .*rules/loop\.md → Budget")
+        self.spent(210_000, mode="a")  # 450k in all
+        out = self.ps("S+", "title=b", "verify=v")  # an added step row counts too
+        self.assertRegex(out, r"(?m)^budget: 150% of .* — WARNING")
+        self.assertIn("ADDED", out)
+
+    def test_nothing_without_data(self):
+        self.assertNotRegex(self.ps("S1", "notes=x"), r"(?m)^budget:")  # no ceiling, no transcript
+        self.ps("--header", "budget=S")
+        self.assertNotRegex(self.ps("S1", "notes=y"), r"(?m)^budget:")  # no transcript
+        self.spent(150_000)
+        self.assertNotRegex(self.ps("C1", "evidence=e"), r"(?m)^budget:")  # not a step row
+
+    def test_broken_spend_data_is_silent(self):
+        self.ps("--header", "budget=S")
+        self.spent(150_000)
+        with open(os.path.join(self.g, ".spend-cache.json"), "w", encoding="utf-8") as f:
+            f.write("{broken")
+        with open(os.path.join(self.home, ".claude", "projects", "p", "sess-a.jsonl"), "a", encoding="utf-8") as f:
+            f.write("{not json\n")
+        self.ps("S1", "notes=x")  # exit 0 whatever spend makes of it
+
+
+class EvidenceDue(PlanBase):
+    def test_done_with_open_criterion_warns(self):
+        self.ps("C+", "criterion=it works", "proven by=S1")
+        out = self.ps("S1", "status=done")
+        self.assertIn("WARNING", out)
+        self.assertIn("C1", out)
+        self.assertIn('plan-set.py %s C1 "evidence=' % self.p, out)
+        self.assertIn("| done |", self.row())  # a warning, not a refusal
+
+    def test_no_warning_once_evidence_is_in(self):
+        self.ps("C+", "criterion=it works", "proven by=S1")
+        self.ps("C1", "evidence=go test ok @11:40")
+        self.assertNotIn("WARNING", self.ps("S1", "status=done"))
+
+    def test_other_steps_criterion_not_named(self):
+        self.ps("S+", "title=b", "verify=v")
+        self.ps("C+", "criterion=it works", "proven by=S2")
+        self.assertNotIn("C1", self.ps("S1", "status=done"))
 
 
 if __name__ == "__main__":
