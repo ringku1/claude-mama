@@ -7,8 +7,9 @@ dependent steps. Adding every step's estimate over-counted parallel goals 3-4×.
 Past goals calibrate it: the metrics lines in the store's lessons.md and the user's
 patterns.md record "est <n>m critical path … actual <m>m (active <k>m)"; the median of
 active / critical path over the last goals scales the estimate (needs 3 of them). Tokens the
-same way: the median measured tokens per step of the last goals × this plan's steps is the
-likely spend, to size the budget from (picked sizes ran from half to 4× of what goals used).
+same way: the median measured tokens per step of the last 10 goals in lessons.md (patterns.md
+fills in while lessons.md has under 3) × this plan's steps is the likely spend, to size the budget
+from (picked sizes ran from half to 4× of what goals used); plan-set refuses a first approval below it.
 
 Usage: estimate.py <plan.md>   # prints the critical path, the sum, what's left, and the likely time
 """
@@ -152,20 +153,22 @@ TOKENS = (re.compile(r"\| steps (\d+) \|[^\n]*?tokens est [^/|\n]*/ ~?([\d.]+)([
           re.compile(r", (\d+) steps?\):[^\n]*?/ ~?([\d.]+)([kM]) measured"))                # patterns.md goals
 
 
-def token_history(plan_path):
-    """(steps, tokens) per past goal, oldest first, from the same files as history()."""
-    pairs = []
-    store = os.path.dirname(os.path.dirname(os.path.abspath(plan_path)))
-    for f in (os.path.join(store, "lessons.md"), os.path.expanduser("~/.claude/mama/patterns.md")):
+def token_history(plan_path, last=10):
+    """(steps, tokens) per past goal, oldest first: the last `last` metrics lines of this repo's
+    lessons.md; while those are fewer than 3, the user's patterns.md goals (not already there) fill in."""
+    def read(f, rx):
         try:
             text = open(f, encoding="utf-8").read()
         except OSError:
-            continue
-        for rx in TOKENS:
-            for m in rx.finditer(text):
-                pair = (int(m.group(1)), round(float(m.group(2)) * (1_000_000 if m.group(3) == "M" else 1_000)))
-                if pair[0] and pair[1] and pair not in pairs:
-                    pairs.append(pair)
+            return []
+        return [(int(m.group(1)), round(float(m.group(2)) * (1_000_000 if m.group(3) == "M" else 1_000)))
+                for m in rx.finditer(text) if int(m.group(1)) and float(m.group(2))]
+    store = os.path.dirname(os.path.dirname(os.path.abspath(plan_path)))
+    pairs = read(os.path.join(store, "lessons.md"), TOKENS[0])[-last:]
+    if len(pairs) < 3:
+        extra = [p for p in read(os.path.expanduser("~/.claude/mama/patterns.md"), TOKENS[1])
+                 if p not in pairs]  # a goal in both files counts once
+        pairs = (extra + pairs)[-last:]
     return pairs
 
 
@@ -176,6 +179,23 @@ def token_rate(plan_path, last=10):
         return None, 0
     mid = len(r) // 2
     return (r[mid] if len(r) % 2 else (r[mid - 1] + r[mid]) / 2), len(r)
+
+
+def tokens_likely(plan_text, plan_path):
+    """(likely tokens, rate, goals) for this plan's live steps; (None, None, 0) without history."""
+    steps = len([x for x in steps_of(plan_text) if x[3] not in SKIP])
+    rate, n = token_rate(plan_path) if plan_path and steps else (None, 0)
+    return (steps * rate if rate is not None else None), rate, n
+
+
+def size_for(tokens):
+    """The smallest budget size that covers `tokens`: S, M, or `L <n>M` rounded up to 0.1M."""
+    if tokens <= 300_000:
+        return "S"
+    if tokens <= 1_000_000:
+        return "M"
+    m = -(-int(tokens) // 100_000) / 10
+    return f"L {m:g}M"
 
 
 def tokens_line(steps, plan_path, size=None):

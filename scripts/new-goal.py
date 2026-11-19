@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Create a goal's tracking folder, clean, in one step.
 
-Usage: new-goal.py <store> <slug> <type> "<where it came from>" [--quick]
+Usage: new-goal.py <store> <slug> <type> "<where it came from>" [--tier quick|standard|full] [--quick]
   type: build | fix | research | mixed
-  --quick: mode quick, and a 3-line overview instead of the full one
+  --tier: the header's tier (— until research picks it; rules/research.md)
+  --quick: same as --tier quick: mode quick, and a 3-line overview instead of the full one
 Creates <store>/<slug>/ (suffix -2, -3… if taken) with plan.md (header filled: slug, type,
 status planning, started now), overview.md (template) and log.md (empty, then E1 via log.py).
 Template comments are stripped; the start is marked as the first milestone (.milestone, see
@@ -31,9 +32,32 @@ def strip_comments(text):
     return re.sub(r"<!--.*?-->\n*", "", text, flags=re.S)
 
 
+TIERS = ("quick", "standard", "full")
+
+
+def parse(argv):
+    """(positional args, tier or None); exits with the usage on a bad --tier."""
+    args, tier, i = [], None, 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--quick":
+            tier = "quick"
+        elif a == "--tier" or a.startswith("--tier="):
+            if a == "--tier":
+                i += 1
+                a = "--tier=" + (argv[i] if i < len(argv) else "")
+            tier = a.split("=", 1)[1]
+            if tier not in TIERS:
+                sys.exit(f"bad --tier {tier!r}; use one of {' | '.join(TIERS)}\n\n" + __doc__)
+        else:
+            args.append(a)
+        i += 1
+    return args, tier
+
+
 def main():
-    quick = "--quick" in sys.argv
-    args = [a for a in sys.argv[1:] if a != "--quick"]
+    args, tier = parse(sys.argv[1:])
+    quick = tier == "quick"
     if len(args) != 4 or args[2] not in {"build", "fix", "research", "mixed"}:
         sys.exit(__doc__)
     store, base, kind, source = args
@@ -55,6 +79,7 @@ def main():
     plan = re.sub(r"type: <[^>]*>", f"type: {kind}", plan, count=1)
     plan = re.sub(r"status: <[^>]*>", "status: planning", plan, count=1)
     plan = re.sub(r"mode: <[^>]*>", "mode: quick" if quick else "mode: —", plan, count=1)
+    plan = re.sub(r"tier: <[^>]*>", f"tier: {tier or '—'}", plan, count=1)
     plan = re.sub(r"progress: <[^|]*\| blocked: <n>", "progress: 0/0 (0%) | blocked: 0", plan, count=1)
     plan = re.sub(r"budget: ~<spent>k / <[^>]*>", "budget: ~0k / —", plan, count=1)
     plan = re.sub(r"started: <[^>]*>", f"started: {now}", plan, count=1)

@@ -1,7 +1,7 @@
 <!-- plan.md — machine file, source of truth. Only the orchestrator writes it, only with scripts/plan-set.py: rows (S3 / C1 / S+ / C+), header (--header), Parked (P+). Unknown-yet values: —. Delete this comment. -->
 
-goal: <slug> | type: <build|fix|research|mixed> | status: <planning|approved|running|waiting|paused|blocked|done|aborted> | mode: <checkpointed|autonomous|quick|—>
-progress: <done>/<live> (<pct>%) | blocked: <n> | budget: ~<spent>k / <S|M|L nk|L nM> | approved: <size the user approved>
+goal: <slug> | type: <build|fix|research|mixed> | status: <planning|approved|running|waiting|paused|blocked|done|aborted> | mode: <checkpointed|autonomous|quick|—> | tier: <quick|standard|full|—>
+progress: <done>/<live> (<pct>%) | blocked: <n> | budget: ~<spent>k / <S|M|L nk|L nM> | approved: <size the user approved> | auto-raise: <factor 1.0-2.0, e.g. 1.5x>
 base: <branch|n/a> | branch: <branch|n/a> | worktree: <abs path|n/a> | pr: <ask-at-end|auto|none|declined|PR url> | deliverable commit: <yes|no|n/a> | trello: <url|none>
 started: <YYYY-MM-DD HH:MM>
 
@@ -25,6 +25,8 @@ milestone: "★" in notes on a step that ends a milestone (rules/planning.md →
 notes: confidence (L = research/ask first), decision refs (D3), evidence pointer, covered files after pass.
 progress counts live steps (excludes obsolete, parked).
 budget: ~spent is measured from the session transcripts by the Stop hook (scripts/spend.py); you set only the size: S | M | L <n>k|M (e.g. L 800k, L 1.5M), required before a full goal's first approval.
+tier: quick | standard | full, picked by research (rules/research.md); — or missing = full (quick when mode is quick).
+auto-raise: the Stop hook may raise the ceiling itself, once, up to approved × this (1.5x unless set at approval; 1x = never).
 pr: ask-at-end (show the draft, open on yes) | auto (open it) | none | declined (user said no at the end) | <PR url> once opened.
 -->
 

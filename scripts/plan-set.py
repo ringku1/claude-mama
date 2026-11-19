@@ -22,6 +22,13 @@ Guards (they enforce the skill's rules, so state can't drift):
   (rules/research.md, rules/questions.md) and a budget ceiling; a quick goal's needs `E playback`
 - budget is always `~<spent>k / <size>`, size S, M or `L <n>k|M` (e.g. `L 800k`, `L 1.5M`): the Stop hook measures
   the spend part and reads the ceiling from the size, so neither can be dropped
+- tier is quick | standard | full (standard and full share the approval guards above); auto-raise is a
+  factor 1.0–2.0, written `1.5x`, set to 1.5x at the first approval unless given; plans from before
+  these fields get them added when set
+- the first approval (not quick) refuses a budget size below the tokens likely (estimate.py: past goals'
+  tokens per step × live steps) unless a `D … budget … (tag: user)` line accepts it; no history, no check
+- after any write on a running goal, a `.heartbeat` over 30 min old while log.md changed since prints a
+  WARNING that the Stop hook isn't running
 - pr is one of ask-at-end | auto | none | declined | <url>
 - a hand-typed end earlier than start is refused (a step that crossed midnight: end=now)
 - header status done runs close-check.py and is refused until it prints OK
@@ -53,13 +60,15 @@ import activity  # noqa: E402
 import fileio  # noqa: E402
 import overview  # noqa: E402
 import spend  # noqa: E402
-from estimate import FINISHED, expand, fmt, split_row, summary  # noqa: E402
+from estimate import FINISHED, expand, fmt, size_for, split_row, summary, tokens_likely  # noqa: E402
 
 NOW = lambda: datetime.datetime.now().strftime("%H:%M")
 MODES = {"checkpointed", "autonomous", "quick"}
 PR_VALUES = ("ask-at-end", "auto", "none", "declined")
 SIZE = re.compile(r"[SM]|L \d+(?:\.\d+)?[kM]")
 SPENT = re.compile(r"~\d+(?:\.\d+)?k")
+TIERS = ("quick", "standard", "full")
+HEARTBEAT_STALE = 30 * 60  # seconds without a Stop hook run, while the log moved on, before plan-set warns
 
 LIVE_EXCLUDED = {"obsolete", "parked"}
 
@@ -226,6 +235,10 @@ def guard_header(path, lines, updates):
                  "(approve · checkpointed / approve · autonomous), then set mode=… with the status.")
     if "budget" in updates:
         updates["budget"] = budget_value(header_value(lines, "budget"), updates["budget"])
+    if "tier" in updates and updates["tier"] not in TIERS:
+        sys.exit(f"REFUSED: tier={updates['tier']!r}; use one of {' | '.join(TIERS)}")
+    if "auto-raise" in updates:
+        updates["auto-raise"] = auto_raise_value(updates["auto-raise"])
     pr = updates.get("pr")
     if pr is not None and pr not in PR_VALUES and not re.match(r"https?://\S+$", pr):
         sys.exit(f"REFUSED: pr={pr!r}; use one of {' | '.join(PR_VALUES)} | <PR url>")
@@ -266,6 +279,11 @@ def guard_header(path, lines, updates):
     if first_go and mode != "quick" and not SIZE.fullmatch(budget.split("/")[-1].strip()):
         sys.exit("REFUSED: no budget ceiling. Set the size with the approval: budget=S, budget=M "
                  "or budget='L <n>k|M' (e.g. 'L 800k', 'L 1.5M').")
+    size = size_of(budget)
+    if first_go and mode != "quick" and size:
+        guard_floor(lines, path, size, log)
+    if first_go and size and "auto-raise" not in updates and header_value(lines, "auto-raise") in ("", "—"):
+        updates["auto-raise"] = "1.5x"  # rules/loop.md → Budget: the Stop hook may raise once, to approved × 1.5
     guard_budget(path, lines, updates, log, first_go or prev in ("planning", ""))
     logpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.py")
     if st == "waiting" and prev != "waiting" and os.path.exists(logp):
@@ -278,6 +296,29 @@ def guard_header(path, lines, updates):
         log = open(logp, encoding="utf-8").read() if os.path.exists(logp) else ""
         if trello not in ("", "none", "—") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
             print("REMINDER: Trello card linked — post the start comment now (what this goal will change), log `trello`.")
+
+
+def auto_raise_value(typed):
+    """`<f>x` with f in 1.0–2.0 from `1.5`, `1.5x`, `1`; anything else is refused."""
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*[x×]?\s*", typed or "")
+    f = float(m.group(1)) if m else 0
+    if not 1.0 <= f <= 2.0:
+        sys.exit(f"REFUSED: auto-raise={typed!r}; use a factor from 1.0 to 2.0, e.g. auto-raise=1.5x (1x = never)")
+    return f"{f:g}x"
+
+
+def guard_floor(lines, path, size, log):
+    """A first approval's ceiling covers the tokens past goals say this plan will likely take, unless
+    the user accepted a smaller one (`D budget … (tag: user)`). No history, no check."""
+    likely, rate, n = tokens_likely("\n".join(lines), path)
+    cap = spend.ceiling(size)
+    if likely is None or not cap or cap >= likely or re.search(r"^D\d+ \S+ .*budget.*tag: user", log, re.M):
+        return
+    need = size_for(likely)
+    typed = f"budget='{need}'" if " " in need else f"budget={need}"
+    sys.exit(f"REFUSED: budget {size} is below the tokens likely ~{fmt(likely)} (~{fmt(rate)} per step over the "
+             f"last {n} goals). Set {typed} with the approval — or, if the user wants the smaller size, ask them "
+             "and log `D budget <size> accepted … (tag: user)` first.")
 
 
 def size_of(budget):
@@ -341,12 +382,13 @@ def set_header(lines, updates):
                 lines[i] = pat.sub(lambda m: f"{m.group(1)}{k}: {v}{m.group(2)}", lines[i], count=1)
                 print(lines[i])
                 break
-        else:
-            budget_line = next((i for i in range(end) if "budget: " in lines[i]), None)
-            if k != "approved" or budget_line is None:  # plans from before `approved:` get it added
+        else:  # plans from before these fields get them added: approved/auto-raise by the budget, tier by the mode
+            anchor = {"approved": "budget: ", "auto-raise": "budget: ", "tier": "mode: "}.get(k)
+            at = next((i for i in range(end) if anchor and anchor in lines[i]), None)
+            if at is None:
                 sys.exit(f"header field {k!r} not found")
-            lines[budget_line] += f" | approved: {v}"
-            print(lines[budget_line])
+            lines[at] += f" | {k}: {v}"
+            print(lines[at])
 
 
 def progress(lines):
@@ -382,6 +424,22 @@ def main():
         print(est)
     if what.startswith("S"):
         budget_line(path, lines)
+    heartbeat_warning(goal, lines)
+
+
+def heartbeat_warning(goal, lines):
+    """A running goal whose `.heartbeat` (written by every Stop hook run) is over 30 min old while
+    log.md moved on since: the hook isn't running. No `.heartbeat` (a goal from before it) — silent."""
+    try:
+        if header_value(lines, "status") != "running":
+            return
+        beat = os.path.getmtime(os.path.join(goal, ".heartbeat"))
+        logged = os.path.getmtime(os.path.join(goal, "log.md"))
+    except OSError:
+        return
+    age = datetime.datetime.now().timestamp() - beat
+    if age > HEARTBEAT_STALE and logged > beat:
+        print(f"WARNING: the Stop hook hasn't run for {int(age // 60)} min — check ~/.claude/mama/hook-errors.log")
 
 
 def budget_line(path, lines):

@@ -116,7 +116,7 @@ class Approved(PlanBase):
 
     def test_plan_from_before_approved_gets_it(self):
         self.ps("--header", "status=running", "mode=autonomous", "budget=M")
-        s = re.sub(r" \| approved: [^|\n]*", "", self.read(self.p))
+        s = re.sub(r" \| (approved|auto-raise): [^|\n]*?(?= \||$)", "", self.read(self.p), flags=re.M)  # from before both
         open(self.p, "w", encoding="utf-8").write(s)
         self.ps("--header", "budget=L 1.5M")
         self.assertEqual(self.approved(), "M")
@@ -388,6 +388,155 @@ class EvidenceDue(PlanBase):
         self.ps("S+", "title=b", "verify=v")
         self.ps("C+", "criterion=it works", "proven by=S2")
         self.assertNotIn("C1", self.ps("S1", "status=done"))
+
+
+def history_files(test, lessons=(), patterns=()):
+    """Metrics lines: lessons as (steps, tokens k), patterns as (steps, tokens k)."""
+    with open(os.path.join(test.store, "lessons.md"), "w", encoding="utf-8") as f:
+        for i, (n, k) in enumerate(lessons):
+            f.write(f"- 2026-01-0{i % 9 + 1} g{i} fix | steps {n} | time est 10m critical path / actual 5m"
+                    f" | tokens est M / ~{k}k | x\n")
+    with open(os.path.join(test.home, ".claude", "mama", "patterns.md"), "w", encoding="utf-8") as f:
+        f.write("## Goals and estimates\n\n")
+        for i, (n, k) in enumerate(patterns):
+            f.write(f"- p{i} (fix, {n} steps): est 9m critical path / M, actual 5m / {k}k measured\n")
+
+
+class Tiers(Base):
+    def test_new_goal_writes_the_tier(self):
+        g = self.new_goal()
+        head = self.read(self.plan(g)).split("\n## ")[0]
+        self.assertIn("| tier: —", head.splitlines()[0])  # line 1, after mode
+        self.assertIn("auto-raise: —", head)
+        g = self.run_s("new-goal.py", self.store, "s", "fix", "t", "--tier", "standard").splitlines()[0]
+        self.assertRegex(self.read(self.plan(g)), r"mode: — \| tier: standard")
+        for args in (("--quick",), ("--tier", "quick"), ("--tier=quick",)):
+            g = self.run_s("new-goal.py", self.store, "q", "fix", "t", *args).splitlines()[0]
+            self.assertRegex(self.read(self.plan(g)), r"mode: quick \| tier: quick", args)
+            self.assertNotIn("## Timeline", self.read(os.path.join(g, "overview.md")))  # the 3-line overview
+        self.run_s("new-goal.py", self.store, "x", "fix", "t", "--tier", "huge", ok=False)
+        self.run_s("new-goal.py", self.store, "x", "fix", "t", "--tier", ok=False)
+
+    def test_standard_has_the_full_approval_guards(self):
+        g = self.run_s("new-goal.py", self.store, "s", "build", "t", "--tier", "standard").splitlines()[0]
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S+", "title=a", "verify=v")
+        go = ("plan-set.py", p, "--header", "status=approved", "mode=checkpointed")
+        self.assertIn("no research", self.run_s(*go, ok=False))
+        for line, want in (("research: 1 findings, 0 cases, 0 open", "expectations not covered"),
+                           ("expectations: 5 settled, 1 asked", "no database decision"),
+                           ("db: none — t", "no playback"), ("playback: confirmed", "no budget ceiling")):
+            self.run_s("log.py", log, "E", line)
+            self.assertIn(want, self.run_s(*go, ok=False))
+        self.run_s(*go, "budget=S")
+
+    def test_plan_set_tier_and_auto_raise(self):
+        g = self.new_goal()
+        p = self.plan(g)
+        self.assertIn("REFUSED", self.run_s("plan-set.py", p, "--header", "tier=huge", ok=False))
+        self.run_s("plan-set.py", p, "--header", "tier=standard")
+        self.assertIn("tier: standard", self.read(p))
+        for typed, want in (("1.5", "1.5x"), ("2x", "2x"), ("1", "1x"), ("1.25x", "1.25x")):
+            self.run_s("plan-set.py", p, "--header", f"auto-raise={typed}")
+            self.assertIn(f"auto-raise: {want}", self.read(p), typed)
+        for typed in ("2.5", "0.5x", "big", ""):
+            self.assertIn("REFUSED", self.run_s("plan-set.py", p, "--header", f"auto-raise={typed}", ok=False), typed)
+
+    def test_old_plan_without_the_fields_gets_them(self):
+        g = self.new_goal()
+        p = self.plan(g)
+        s = re.sub(r" \| (tier|auto-raise): [^|\n]*", "", self.read(p))
+        open(p, "w", encoding="utf-8").write(s)
+        self.assertNotIn("tier:", self.read(p))
+        self.run_s("plan-set.py", p, "--header", "tier=full", "auto-raise=1.5")
+        lines = self.read(p).splitlines()
+        self.assertTrue(lines[0].endswith("| tier: full"), lines[0])
+        self.assertIn("| auto-raise: 1.5x", next(l for l in lines if "budget:" in l))
+
+
+class TokenSource(Base):
+    def test_lessons_first_patterns_only_as_fallback(self):
+        import estimate
+        from unittest import mock
+        g = self.new_goal()
+        history_files(self, lessons=[(2, 200), (2, 200), (2, 200)], patterns=[(1, 900)] * 5 + [(1, 800)])
+        with mock.patch.dict(os.environ, {"HOME": self.home, "USERPROFILE": self.home}):
+            self.assertEqual(estimate.token_rate(self.plan(g)), (100_000, 3))  # patterns not mixed in
+            history_files(self, lessons=[(1, 10)] * 12 + [(1, 20)] * 3)  # equal lines are separate goals
+            self.assertEqual(estimate.token_rate(self.plan(g)), (10_000, 10))  # the last 10 lines
+            history_files(self, lessons=[], patterns=[(2, 600), (2, 600), (2, 800)])
+            self.assertEqual(estimate.token_rate(self.plan(g)), (300_000, 3))
+            history_files(self)
+            self.assertEqual(estimate.token_rate(self.plan(g)), (None, 0))
+
+
+class BudgetFloor(PlanBase):
+    def test_first_approval_refuses_a_size_below_tokens_likely(self):
+        history_files(self, lessons=[(1, 500), (1, 500), (1, 500)])
+        out = self.ps("--header", "status=approved", "mode=checkpointed", "budget=S", ok=False)
+        self.assertIn("tokens likely ~500k", out)
+        self.assertIn("budget=M", out)  # the size that covers it
+        self.assertIn("status: planning", self.read(self.p))
+        self.ps("--header", "status=approved", "mode=checkpointed", "budget=M")
+
+    def test_user_decision_accepts_a_smaller_size(self):
+        history_files(self, lessons=[(1, 2000), (1, 2000), (1, 2000)])
+        out = self.ps("--header", "status=approved", "mode=checkpointed", "budget=M", ok=False)
+        self.assertIn("budget='L 2M'", out)
+        self.run_s("log.py", os.path.join(self.g, "log.md"), "D", "budget M is enough, scope is small (tag: user)")
+        self.ps("--header", "status=approved", "mode=checkpointed", "budget=M")
+
+    def test_no_history_no_refusal(self):
+        self.ps("--header", "status=approved", "mode=checkpointed", "budget=S")
+
+
+class AutoRaiseDefault(PlanBase):
+    def raise_of(self):
+        return re.search(r"auto-raise: ([^|\n]*)", self.read(self.p)).group(1).strip()
+
+    def test_set_at_first_approval(self):
+        self.ps("--header", "budget=S")
+        self.assertEqual(self.raise_of(), "—")  # not before approval
+        self.ps("--header", "status=approved", "mode=checkpointed")
+        self.assertEqual(self.raise_of(), "1.5x")
+
+    def test_given_value_kept(self):
+        self.ps("--header", "status=approved", "mode=checkpointed", "budget=S", "auto-raise=1x")
+        self.assertEqual(self.raise_of(), "1x")
+
+
+class Heartbeat(PlanBase):
+    def setUp(self):
+        super().setUp()
+        self.ps("--header", "status=running", "mode=autonomous", "budget=M")
+        self.hb = os.path.join(self.g, ".heartbeat")
+        self.logp = os.path.join(self.g, "log.md")
+
+    def beat(self, age_min, log_age_min):
+        with open(self.hb, "w", encoding="utf-8") as f:
+            f.write("2026-01-01T00:00:00 120k\n")
+        now = time.time()
+        os.utime(self.hb, (now - age_min * 60, now - age_min * 60))
+        os.utime(self.logp, (now - log_age_min * 60, now - log_age_min * 60))
+
+    def test_stale_heartbeat_with_newer_log_warns(self):
+        self.beat(45, 5)
+        out = self.ps("S1", "notes=x")
+        self.assertIn("WARNING: the Stop hook hasn't run for 45 min — check ~/.claude/mama/hook-errors.log", out)
+        self.beat(45, 5)
+        self.assertIn("hasn't run for 45 min", self.ps("--header", "pr=none"))  # any write
+
+    def test_quiet_otherwise(self):
+        self.beat(10, 5)  # fresh
+        self.assertNotIn("Stop hook", self.ps("S1", "notes=a"))
+        self.beat(45, 50)  # nothing logged since
+        self.assertNotIn("Stop hook", self.ps("S1", "notes=b"))
+        os.remove(self.hb)  # an old goal: no heartbeat at all
+        self.assertNotIn("Stop hook", self.ps("S1", "notes=c"))
+        self.beat(45, 5)
+        self.ps("--header", "status=waiting")  # not running
+        self.beat(45, 5)
+        self.assertNotIn("Stop hook", self.ps("S1", "notes=d"))
 
 
 if __name__ == "__main__":
