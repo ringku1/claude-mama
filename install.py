@@ -12,6 +12,8 @@ Claude's folder is $CLAUDE_CONFIG_DIR when set, else ~/.claude (%USERPROFILE%\\.
    in exec form — this Python's absolute path plus the hook script's — so no shell, `~` or
    `python3`-vs-`python` differences matter. Other settings are kept; the first time, the original is saved
    as settings.json.bak (never overwritten later). An unreadable settings.json is left untouched.
+   It also sets enabledPlugins "mama@skills-dir" to false: Claude Code would otherwise load the linked folder as
+   a plugin too and run each hook twice. --remove takes that key out again.
    Safe to re-run.
 
 mama can instead be installed as a Claude Code plugin (claude plugin install mama@claude-mama), which brings
@@ -36,6 +38,9 @@ CLAUDE = os.path.abspath(  # one separator style (mklink reads "/x" as a switch)
 DEST = os.path.join(CLAUDE, "skills", "mama")
 SETTINGS = os.path.join(CLAUDE, "settings.json")
 EVENTS = {"PreCompact": ("precompact", None), "SessionStart": ("sessionstart", "compact"), "Stop": ("stop", None)}
+# Claude Code also loads <claude folder>/skills/mama as this plugin (the folder has .claude-plugin/), which would run
+# hooks/hooks.json beside the settings.json hooks, so every hook twice. The one-liner turns that copy off.
+SKILLS_DIR_PLUGIN = "mama@skills-dir"
 
 
 def plugin_enabled():
@@ -44,7 +49,8 @@ def plugin_enabled():
         with open(SETTINGS, encoding="utf-8") as f:
             settings = json.load(f)
         enabled = settings.get("enabledPlugins")
-        plugin = next((k for k, v in enabled.items() if k.split("@")[0] == "mama" and v is True), None)
+        plugin = next((k for k, v in enabled.items()
+                       if k.split("@")[0] == "mama" and k != SKILLS_DIR_PLUGIN and v is True), None)
         return plugin, bool(plugin) and is_mama(settings.get("hooks", {}))
     except (OSError, ValueError, AttributeError):
         return None, False
@@ -69,7 +75,8 @@ def is_mama(entry):
     return "mama-hook.py" in json.dumps(entry)
 
 
-def update_hooks(remove):
+def update_hooks(remove, skills_dir_off=None):
+    """Add (or with remove, take out) mama's hooks; skills_dir_off (default: not remove) disables mama@skills-dir."""
     settings = {}
     if os.path.exists(SETTINGS):
         try:
@@ -77,8 +84,8 @@ def update_hooks(remove):
                 settings = json.load(f)
         except (OSError, ValueError) as e:
             sys.exit(f"mama: can't read {SETTINGS} ({e}) — fix or move it, then run this again. Nothing was changed.")
-        if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict):
-            sys.exit(f"mama: {SETTINGS} is not a JSON object with an object \"hooks\" — fix it, then run this again. Nothing was changed.")
+        if not isinstance(settings, dict) or not all(isinstance(settings.get(k, {}), dict) for k in ("hooks", "enabledPlugins")):
+            sys.exit(f"mama: {SETTINGS} is not a JSON object with object \"hooks\" and \"enabledPlugins\" — fix it, then run this again. Nothing was changed.")
         if not os.path.exists(SETTINGS + ".bak"):  # keep the user's original, not a copy of our last edit
             shutil.copy2(SETTINGS, SETTINGS + ".bak")
     hooks = settings.setdefault("hooks", {})
@@ -96,6 +103,13 @@ def update_hooks(remove):
             hooks.pop(event, None)
     if not hooks:
         settings.pop("hooks")
+    plugins = settings.setdefault("enabledPlugins", {})
+    if (not remove) if skills_dir_off is None else skills_dir_off:
+        plugins[SKILLS_DIR_PLUGIN] = False
+    else:
+        plugins.pop(SKILLS_DIR_PLUGIN, None)
+    if not plugins:
+        settings.pop("enabledPlugins")
     os.makedirs(CLAUDE, exist_ok=True)
     tmp = SETTINGS + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -115,7 +129,7 @@ def main():
     if plugin:
         if ours:  # a one-liner install from before the plugin would run every hook twice
             try:
-                update_hooks(remove=True)
+                update_hooks(remove=True, skills_dir_off=True)  # skills/mama may stay until deleted
             except OSError as e:
                 sys.exit(f"mama: {e}")
             sys.stdout.flush()

@@ -78,6 +78,26 @@ class Install(unittest.TestCase):
                 self.assertEqual(f.read(), bad)
             self.assertFalse(os.path.exists(os.path.join(self.claude, "settings.json.bak")))
 
+    def test_one_liner_disables_skills_dir_plugin(self):
+        # Claude Code also loads skills/mama as plugin mama@skills-dir (it has .claude-plugin/), which would
+        # run hooks/hooks.json beside the settings.json hooks: every hook twice
+        self.write_settings('{"enabledPlugins": {"other@x": true}}')
+        self.install()
+        self.assertEqual(self.settings()["enabledPlugins"], {"other@x": True, "mama@skills-dir": False})
+        cfg = os.path.join(self.tmp, "cfg")
+        self.install(CLAUDE_CONFIG_DIR=cfg)
+        self.assertEqual(self.settings(cfg)["enabledPlugins"], {"mama@skills-dir": False})
+
+    def test_remove_clears_skills_dir_key(self):
+        self.write_settings('{"theme": "dark", "enabledPlugins": {"other@x": true}}')
+        self.install()
+        self.install("--remove")
+        self.assertEqual(self.settings(), {"theme": "dark", "enabledPlugins": {"other@x": True}})
+        self.write_settings('{"theme": "dark"}')
+        self.install()
+        self.install("--remove")
+        self.assertEqual(self.settings(), {"theme": "dark"})
+
     def test_honours_claude_config_dir(self):
         cfg = os.path.join(self.tmp, "cfg")
         self.install(CLAUDE_CONFIG_DIR=cfg)

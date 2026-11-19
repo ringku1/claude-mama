@@ -141,6 +141,16 @@ class InstallWithPlugin(unittest.TestCase):
         self.assertEqual(set(load(self.path)["hooks"]), set(EVENTS))
         self.assertTrue(self.linked())
 
+    def test_skills_dir_key_is_not_the_marketplace_plugin(self):
+        # mama@skills-dir is Claude Code's auto-loaded copy of the one-liner's own folder, not the plugin route
+        self.write({"enabledPlugins": {"mama@skills-dir": True}})
+        r = self.install()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("plugin is enabled", r.stderr)
+        self.assertEqual(load(self.path)["enabledPlugins"], {"mama@skills-dir": False})
+        self.assertEqual(set(load(self.path)["hooks"]), set(EVENTS))
+        self.assertTrue(self.linked())
+
     def test_remove_still_works_with_the_plugin_enabled(self):
         self.write({})
         self.install()
