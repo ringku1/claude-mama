@@ -93,6 +93,49 @@ class CloseBase(Base):
         r = self.run_s("new-goal.py", self.store, "study", "research", "t").splitlines()[0]
         self.assertNotIn("bug hunt", self.close(r))
 
+    def test_fix_step_needs_a_failing_first_test(self):
+        g = self.ready_goal()
+        p = self.plan(g)
+        self.run_s("plan-set.py", p, "S1", "kind=fix")
+        out = self.close(g, ok=False)
+        self.assertIn("fix step S1 has no failing-first test — add `failing-first: <test>` or `no test: <why>` "
+                      "to its notes (rules/loop.md → Bug hunt)", out)
+        self.run_s("plan-set.py", p, "S1", "notes=failing-first: TestFilterEmpty")
+        self.close(g, ok=True)
+        self.run_s("plan-set.py", p, "S1", "notes=no test: a copy change only")
+        self.close(g, ok=True)
+        self.run_s("plan-set.py", p, "S1", "notes=", "status=running")
+        self.assertNotIn("fix step S1", self.close(g, ok=False))  # an open step is reported as open
+
+    def test_unverified_steps_close_only_once_the_user_accepts(self):
+        g = self.ready_goal()
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S1", "status=unverified")
+        out = self.close(g, ok=False)
+        self.assertNotIn("still unverified", out)  # finished, not open
+        self.assertIn("unverified accepted: S1", out)  # names the line to log
+        self.run_s("log.py", log, "D", "ship it, unverified accepted: S2 (tag: user)")
+        self.close(g, ok=False)  # doesn't list S1
+        self.run_s("log.py", log, "D", "unverified accepted: S1 — no device here (tag: agent)")
+        self.close(g, ok=False)  # not the user's
+        self.run_s("log.py", log, "D", "unverified accepted: S1 — no device here (tag: user)")
+        out = self.close(g, ok=True)
+        self.assertIn("unverified S1 (accepted)", out)  # metrics draft
+        self.run_s("log.py", log, "E", "S1 reworked after review")
+        self.close(g, ok=False)  # the acceptance came before the step changed again
+
+    def test_unverified_evidence_counts_only_when_accepted(self):
+        g = self.ready_goal()
+        p, log = self.plan(g), os.path.join(g, "log.md")
+        self.run_s("plan-set.py", p, "S1", "status=unverified")
+        self.run_s("plan-set.py", p, "C1", "evidence=unverified: needs a real phone")
+        self.assertIn("criterion C1 has no evidence", self.close(g, ok=False))
+        self.run_s("log.py", log, "D", "unverified accepted: S1 (tag: user)")
+        self.assertNotIn("criterion C1", self.close(g, ok=True))
+
+    def test_no_unverified_steps_no_metrics_field(self):
+        self.assertNotIn("unverified", self.close(self.ready_goal(), ok=True))
+
     def close(self, g, ok=None):
         r = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True,
                            text=True, env=self.env())

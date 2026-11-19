@@ -15,6 +15,7 @@ import estimate  # noqa: E402
 import fileio  # noqa: E402,F401  (UTF-8 output)
 
 OPEN_STEP = {"todo", "running", "testing", "fixing", "blocked"}
+FINISHED_STEP = {"done", "unverified"}  # unverified: verify couldn't run here; finished, needs the user's acceptance
 
 
 IDLE_GAP = 120  # minutes with no log line and no user wait open: the session sat idle (overnight, away)
@@ -180,6 +181,33 @@ def hunt_problems(log, head, quick):
     return out
 
 
+ACCEPT = re.compile(r"^D\d+ \S+ .*unverified accepted:(.*)$", re.M)
+STEP_ID = re.compile(r"(?<![\w./:#-])(S\d+[a-z]?)(?![\w/:-])")
+
+
+def unverified_problems(log, ids):
+    """Unverified steps close only once the user accepted them: the last `D … unverified accepted:
+    <ids> … (tag: user)` line lists every one, and no later log line names any of them (a step
+    changed after the acceptance is asked about again)."""
+    if not ids:
+        return []
+    line = f"`D unverified accepted: {','.join(ids)} — <why> (tag: user)`"
+    accepts = [a for a in ACCEPT.finditer(log) if "tag: user" in a.group(1)]
+    if not accepts:
+        return [f"steps {', '.join(ids)} are unverified — ask the user to accept them unverified, then log {line}"]
+    last = accepts[-1]
+    listed = set(STEP_ID.findall(last.group(1)))
+    absent = [i for i in ids if i not in listed]
+    if absent:
+        return [f"the last unverified acceptance doesn't list {', '.join(absent)} — ask the user about every "
+                f"unverified step, then log {line}"]
+    later = [l for l in log[last.end():].splitlines()
+             if re.match(r"[EDFQ]\d+ ", l) and "unverified accepted:" not in l and set(STEP_ID.findall(l)) & set(ids)]
+    if later:
+        return [f"steps {', '.join(ids)} changed after the user accepted them unverified — ask again, then log {line}"]
+    return []
+
+
 def hunt_rounds(log):
     """[(round, real bugs or None)] in log order, `hunt none` lines left out."""
     out = []
@@ -230,8 +258,17 @@ def main():
     for s in live:
         if s[si["status"]] in OPEN_STEP:
             missing.append(f"step {s[0]} is still {s[si['status']]}")
-        if s[si["status"]] == "done" and not (s[si["start"]] and s[si["end"]]):
+        if s[si["status"]] in FINISHED_STEP and not (s[si["start"]] and s[si["end"]]):
             missing.append(f"step {s[0]} has no start/end time (plan-set.py ... start=now / end=now)")
+        notes = s[si["notes"]] if "notes" in si else ""
+        if ("kind" in si and s[si["kind"]] == "fix" and s[si["status"]] == "done"
+                and "failing-first:" not in notes and "no test:" not in notes):
+            missing.append(f"fix step {s[0]} has no failing-first test — add `failing-first: <test>` or "
+                           "`no test: <why>` to its notes (rules/loop.md → Bug hunt)")
+    unverified = [s[0] for s in live if s[si["status"]] == "unverified"]
+    unverified_missing = unverified_problems(log, unverified)
+    missing += unverified_missing
+    accepted = any("tag: user" in a.group(1) for a in ACCEPT.finditer(log)) and not unverified_missing
 
     # the templates' own placeholders: `<a|b>` header fields and comments; the log's `E1 HH:MM` line
     for name, text, rx in (("plan.md", plan.split("## ")[0], r"<[a-z][^<>\n]*\|[^<>\n]*>|<YYYY-MM-DD HH:MM>|<!--"),
@@ -246,7 +283,8 @@ def main():
     chdr, crit = estimate.table(plan, "Criteria")
     ci = {k: i for i, k in enumerate(chdr)}
     for c in crit:
-        if c[ci["evidence"]] in ("", "—", "-"):
+        ev = c[ci["evidence"]]
+        if ev in ("", "—", "-") or (ev.startswith("unverified:") and not accepted):
             missing.append(f"criterion {c[0]} has no evidence (plan-set.py <plan> {c[0]} \"evidence=...\")")
 
     if head.get("trello", "none") not in ("none", "—", "") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
@@ -309,9 +347,12 @@ def main():
     questions = len(re.findall(r"^Q", log, re.M))
     compactions = len(re.findall(r"^E\d+ \S+ compaction", log, re.M))
     reversed_ = len(re.findall(r"supersedes", log))
+    unverified_field = (f"unverified {','.join(unverified)} ({'accepted' if not unverified_missing else 'not accepted'}) | "
+                        if unverified else "")
     line = (f"- {datetime.date.today()} {slug} {head.get('type', '?')} | steps {len(live)} | "
             f"time est {est}m critical path (sum {est_sum}m) / actual {mins} | tokens est {size} / ~{spent} | "
             f"questions {questions} (changed plan: ?) | fix rounds {att} | {hunt_summary(log)} | "
+            f"{unverified_field}"
             f"checker findings ? | compactions {compactions} | "
             f"wrong assumptions ? | reversed decisions {reversed_}")
 
