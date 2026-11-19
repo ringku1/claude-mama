@@ -182,13 +182,21 @@ def hunt_problems(log, head, quick):
 
 
 ACCEPT = re.compile(r"^D\d+ \S+ .*unverified accepted:(.*)$", re.M)
-STEP_ID = re.compile(r"(?<![\w./:#-])(S\d+[a-z]?)(?![\w/:-])")
+STEP_REF = re.compile(r"(?<![\w./:#-])S\d+[a-z]?(?:-S?\d+)?(?![\w/:-])")  # S3, S6a, a range S2-S4
+STATUS_CHANGE = re.compile(r"\b(status|reopen(ed|s)?|rework(ed|s)?|redo(ne)?|pass(ed|es)?|fail(ed|s)?|"
+                           r"running|testing|fixing|verified)\b", re.I)
+
+
+def step_ids(text):
+    """Step ids a log line names, ranges expanded like plan-set's deps (estimate.expand)."""
+    return set(estimate.expand(" ".join(STEP_REF.findall(text))))
 
 
 def unverified_problems(log, ids):
     """Unverified steps close only once the user accepted them: the last `D … unverified accepted:
-    <ids> … (tag: user)` line lists every one, and no later log line names any of them (a step
-    changed after the acceptance is asked about again)."""
+    <ids> … (tag: user)` line lists every one (ranges like S2-S4 count), and no later log line changes
+    one's status (names it with a status word: reopened, reworked, pass, fail, …) — a step changed
+    after the acceptance is asked about again; a mere mention doesn't void it."""
     if not ids:
         return []
     line = f"`D unverified accepted: {','.join(ids)} — <why> (tag: user)`"
@@ -196,13 +204,14 @@ def unverified_problems(log, ids):
     if not accepts:
         return [f"steps {', '.join(ids)} are unverified — ask the user to accept them unverified, then log {line}"]
     last = accepts[-1]
-    listed = set(STEP_ID.findall(last.group(1)))
+    listed = step_ids(last.group(1))
     absent = [i for i in ids if i not in listed]
     if absent:
         return [f"the last unverified acceptance doesn't list {', '.join(absent)} — ask the user about every "
                 f"unverified step, then log {line}"]
     later = [l for l in log[last.end():].splitlines()
-             if re.match(r"[EDFQ]\d+ ", l) and "unverified accepted:" not in l and set(STEP_ID.findall(l)) & set(ids)]
+             if re.match(r"[EDFQ]\d+ ", l) and "unverified accepted:" not in l
+             and step_ids(l) & set(ids) and STATUS_CHANGE.search(l)]
     if later:
         return [f"steps {', '.join(ids)} changed after the user accepted them unverified — ask again, then log {line}"]
     return []
@@ -226,7 +235,8 @@ def hunt_summary(log):
 
 def spend_deadline():
     """When to stop reading transcripts: MAMA_SPEND_DEADLINE (epoch seconds), which the Stop hook
-    sets to fit its close-check budget; none (read it all) when run by hand or by plan-set."""
+    sets to fit its close-check budget; none (read it all) when run by hand. (plan-set uses spend's
+    default DEADLINE and prints no budget line when that cuts the read.)"""
     try:
         return float(os.environ["MAMA_SPEND_DEADLINE"])
     except (KeyError, ValueError):
@@ -272,7 +282,7 @@ def main():
         if s[si["status"]] in FINISHED_STEP and not (s[si["start"]] and s[si["end"]]):
             missing.append(f"step {s[0]} has no start/end time (plan-set.py ... start=now / end=now)")
         notes = s[si["notes"]] if "notes" in si else ""
-        if ("kind" in si and s[si["kind"]] == "fix" and s[si["status"]] == "done"
+        if ("kind" in si and s[si["kind"]] == "fix" and s[si["status"]] in FINISHED_STEP
                 and "failing-first:" not in notes and "no test:" not in notes):
             missing.append(f"fix step {s[0]} has no failing-first test — add `failing-first: <test>` or "
                            "`no test: <why>` to its notes (rules/loop.md → Bug hunt)")
@@ -295,8 +305,11 @@ def main():
     ci = {k: i for i, k in enumerate(chdr)}
     for c in crit:
         ev = c[ci["evidence"]]
-        if ev in ("", "—", "-") or (ev.startswith("unverified:") and not accepted):
+        if ev in ("", "—", "-"):
             missing.append(f"criterion {c[0]} has no evidence (plan-set.py <plan> {c[0]} \"evidence=...\")")
+        elif ev.startswith("unverified:") and not accepted:
+            missing.append(f"criterion {c[0]} is unverified and not yet accepted by the user — ask, then log "
+                           "`D … unverified accepted: <ids> … (tag: user)`")
 
     if head.get("trello", "none") not in ("none", "—", "") and not re.search(r"^E\d+ \d\d:\d\d trello", log, re.M):
         missing.append("Trello card linked but no `trello` log line")

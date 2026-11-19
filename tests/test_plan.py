@@ -342,6 +342,33 @@ class SpendLine(PlanBase):
             f.write("{not json\n")
         self.ps("S1", "notes=x")  # exit 0 whatever spend makes of it
 
+    def test_partial_measure_prints_nothing(self):
+        """A measure its deadline cut is not the spend: printing it would under-report and miss the WARNING."""
+        import contextlib
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("plan_set", os.path.join(S, "plan-set.py"))
+        ps = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ps)
+        lines = self.read(self.p).splitlines()
+        lines = [re.sub(r"budget: [^|]*", "budget: ~0k / S ", l) if l.startswith("budget:") or "| budget:" in l
+                 else l for l in lines]
+        self.assertIn("S", ps.header_value(lines, "budget"))
+
+        def fake(plan, transcript=None, deadline=None):
+            fake.partial = cut
+            return 100_000
+        real = ps.spend.measure
+        ps.spend.measure = fake
+        try:
+            for cut, want in ((False, True), (True, False)):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    ps.budget_line(self.p, lines)
+                self.assertEqual(bool(re.search(r"(?m)^budget:", buf.getvalue())), want, (cut, buf.getvalue()))
+        finally:
+            ps.spend.measure = real
+
 
 class EvidenceDue(PlanBase):
     def test_done_with_open_criterion_warns(self):

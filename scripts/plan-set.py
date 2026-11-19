@@ -386,11 +386,12 @@ def main():
 
 def budget_line(path, lines):
     """`budget: <pct>% of <ceiling>` from the measured spend; a WARNING from 70%. Never refuses, and
-    prints nothing when spend can't be measured (no session, no ceiling, any error)."""
+    prints nothing when spend can't be measured (no session, no ceiling, a read its deadline cut
+    short, any error) — a partial sum would under-report and could miss the WARNING."""
     try:
         c = spend.ceiling(header_value(lines, "budget").split("/")[-1].strip())
         total = spend.measure(path)
-        if not c or total is None:
+        if not c or total is None or getattr(spend.measure, "partial", False):
             return
         pct = round(100 * total / c)
         out = f"budget: {pct}% of {fmt(c)}"
