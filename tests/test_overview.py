@@ -195,5 +195,14 @@ class UserLines(Base):
         self.assertRegex(b, r"\| \d\d:\d\d \| Started")
 
 
+
+class NewGoalKeepsMarkers(Base):
+    def test_new_goal_overview_has_the_generated_block(self):
+        goal = self.run_s("new-goal.py", self.store, "demo", "build", "t").splitlines()[0]
+        ov = open(os.path.join(goal, "overview.md"), encoding="utf-8").read()
+        self.assertIn(START, ov)
+        self.assertIn(END, ov)
+        self.assertNotIn("Overview rules", ov)  # the rules comment is still stripped
+
 if __name__ == "__main__":
     unittest.main()

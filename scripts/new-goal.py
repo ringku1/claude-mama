@@ -29,7 +29,8 @@ QUICK_OVERVIEW = """# <task in plain words>
 
 
 def strip_comments(text):
-    return re.sub(r"<!--.*?-->\n*", "", text, flags=re.S)
+    """Drop the template's guidance comments, keeping overview.py's mama:auto markers."""
+    return re.sub(r"<!--(?! mama:auto:).*?-->\n*", "", text, flags=re.S)
 
 
 TIERS = ("quick", "standard", "full")

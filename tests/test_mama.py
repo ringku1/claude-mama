@@ -29,7 +29,8 @@ class NewGoalAndLog(Base):
         self.assertNotIn("<", head, head)
         self.assertIn("status: planning", head)
         self.assertRegex(self.read(os.path.join(g, "log.md")), r"^E1 \d\d:\d\d start build from test\n$")
-        self.assertNotIn("<!--", self.read(os.path.join(g, "overview.md")))
+        ov = self.read(os.path.join(g, "overview.md"))  # guidance comments go; the generated block's markers stay
+        self.assertNotIn("<!--", ov.replace("<!-- mama:auto:start -->", "").replace("<!-- mama:auto:end -->", ""))
 
     def test_taken_slug_gets_suffix(self):
         self.new_goal()
@@ -265,11 +266,11 @@ class Hook(Base):
     def test_stale_overview_and_unlearned(self):
         g = self.running_goal()
         self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
         old = time.time() - 60
         os.utime(os.path.join(g, "overview.md"), (old, old))
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=waiting")  # a milestone on any overview
         reason = json.loads(self.hook("stop"))["reason"]
-        self.assertIn("regenerate overview.md", reason)
+        self.assertIn("since overview.md was written", reason)
         self.assertIn("nothing was learned", reason)
 
     def test_sessionstart_names_own_goal(self):
@@ -532,8 +533,9 @@ class PlanAndOverview(Base):
         self.run_s("plan-set.py", p, "S1", "status=running")
         hook = Hook.hook.__get__(self)
         self.assertEqual(hook("stop"), "")
-        self.run_s("plan-set.py", p, "S1", "status=blocked")
-        self.assertIn("regenerate overview.md", json.loads(hook("stop"))["reason"])
+        self.run_s("plan-set.py", p, "S+", "title=more", "verify=v")  # scope changed: a milestone on any overview
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent 2")
+        self.assertIn("since overview.md was written", json.loads(hook("stop"))["reason"])
 
     def test_resource_limits(self):
         r = subprocess.run([sys.executable, os.path.join(S, "resources.py"), "20"], capture_output=True, text=True)
