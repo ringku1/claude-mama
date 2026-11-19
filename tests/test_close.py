@@ -140,6 +140,18 @@ class CloseBase(Base):
                         ("D", "hunt: extra round, one more low pass (tag: user)"))
         self.assertIn("round 3 is past the full cap of 2 without the user's OK", self.close(g, ok=False))
 
+    def test_a_round_logged_twice_needs_one_ok(self):
+        # failing-first: test_a_round_logged_twice_needs_one_ok
+        g = self.ready_goal()
+        self.fresh_hunt(g, ("E", "hunt 1: 3 found, 1 real, 1 fixed — /code-review high"),
+                        ("E", "hunt 2: 2 found, 1 real, 1 fixed — /code-review low"),
+                        ("D", "hunt: extra round, one more low pass (tag: user)"),
+                        ("E", "hunt 3: 1 found, 1 real, 0 fixed — /code-review low"),
+                        ("E", "hunt 3: 1 found, 1 real, 1 fixed — /code-review low"))
+        self.assertNotIn("round 3 is past", self.close(g, ok=False))
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "hunt 4: 0 found, 0 real, 0 fixed — /code-review low")
+        self.assertIn("round 4 is past the full cap of 2 without the user's OK", self.close(g, ok=False))
+
     def test_standard_and_quick_cap_at_one_round(self):
         # failing-first: test_standard_and_quick_cap_at_one_round
         g = self.ready_goal()
@@ -180,15 +192,32 @@ class CloseBase(Base):
         self.fresh_hunt(g, ("E", "hunt 1: 0 found, 0 real, 0 fixed — /code-review low"))
         self.close(g, ok=True)
 
+    def append_log(self, g, *lines):
+        """Append raw `E<n> HH:MM text` lines (log.py stamps the real clock; these need set times)."""
+        with open(os.path.join(g, "log.md"), "a", encoding="utf-8") as f:
+            f.write("".join(l + "\n" for l in lines))
+
     def test_dispatch_without_a_heartbeat_means_no_stop_hook(self):
         # failing-first: test_dispatch_without_a_heartbeat_means_no_stop_hook
         g = self.ready_goal()
         os.remove(os.path.join(g, ".heartbeat"))
-        self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 — build")
+        self.append_log(g, "E90 23:50 dispatch S1 — build", "E91 23:51 wait on S1", "E92 23:53 S1 done")
         msg = "the Stop hook never ran for this goal (no .heartbeat) — check the hooks are installed"
         self.assertIn(msg, self.close(g))
         open(os.path.join(g, ".heartbeat"), "w", encoding="utf-8").write("2026-11-19T10:00:00 12k\n")
         self.assertNotIn(msg, self.close(g))
+
+    def test_goal_closed_in_its_first_turn_needs_no_heartbeat(self):
+        # failing-first: test_goal_closed_in_its_first_turn_needs_no_heartbeat
+        g = self.ready_goal()
+        os.remove(os.path.join(g, ".heartbeat"))
+        self.append_log(g, "E90 23:50 dispatch S1 — build", "E91 23:52 S1 done")
+        msg = "the Stop hook never ran for this goal (no .heartbeat)"
+        self.assertNotIn(msg, self.close(g))  # no wait: the turn never ended, so no Stop yet
+        self.append_log(g, "E92 23:52 wait on S2", "E93 23:52 S2 done")
+        self.assertNotIn(msg, self.close(g))  # a wait under a minute before the last line: same turn
+        self.append_log(g, "E94 23:54 S2 checked")
+        self.assertIn(msg, self.close(g))  # the turn ended on the wait, so the Stop hook should have run
 
     def test_no_dispatch_needs_no_heartbeat(self):
         self.assertNotIn(".heartbeat", self.close(self.ready_goal(), ok=True))

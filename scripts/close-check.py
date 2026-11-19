@@ -186,13 +186,16 @@ def hunt_problems(log, head, tier):
     if light and not quick:
         out.append(f"hunt round 1 used a light /code-review — a {tier} goal's first round is "
                    "`/code-review high` (later rounds and quick goals may use low)")
-    cap, prev = HUNT_CAP[tier], 0
-    for h in rounds:
+    cap, prev, seen = HUNT_CAP[tier], 0, set()
+    for h in rounds:  # each round once, by its first line: a round may be logged twice (found, then fixed)
+        if h.group(1) in seen:
+            continue
+        seen.add(h.group(1))
         if int(h.group(1)) > cap and not EXTRA.search(log, prev, h.start()):
             out.append(f"round {h.group(1)} is past the {tier} cap of {cap} without the user's OK — ask: deliver "
                        "with known issues / one more low round, and log `D hunt: extra round … (tag: user)` "
                        "before running it")
-        prev = h.end()
+        prev = h.start()
     last = hunts[-1]
     pushes = list(PUSH.finditer(log))
     if pushes and pushes[-1].start() < last.start() and last.group(1) != "none":
@@ -211,13 +214,20 @@ def hunt_problems(log, head, tier):
     return out
 
 
-def heartbeat_problems(goal, log):
-    """Work was dispatched but the Stop hook, which writes <goal>/.heartbeat on every stop of an open
-    goal, never ran: the hooks aren't installed. Skipped in the hook's own run (MAMA_SPEND_DEADLINE
-    set), which proves the hook runs and may come before its first heartbeat write."""
+def heartbeat_problems(goal, log, start=None):
+    """Work was dispatched and a turn ended on the goal, but the Stop hook, which writes
+    <goal>/.heartbeat on every stop of an open goal, never ran: the hooks aren't installed. A turn
+    has ended when an `E wait …` / `E waiting` line (the agent ends its turn after one) is at least a
+    minute before the last log line; a goal created, dispatched and closed in one turn has no Stop
+    yet. Skipped in the hook's own run (MAMA_SPEND_DEADLINE set), which proves the hook runs and may
+    come before its first heartbeat write."""
     if spend_deadline() != float("inf") or not re.search(r"^E\d+ \S+ (?:re-)?dispatch\b", log, re.M):
         return []
     if os.path.exists(os.path.join(goal, ".heartbeat")):
+        return []
+    tl = _timeline(log, start)
+    waits = [dt for dt, kind, _, text in tl if kind == "E" and re.match(r"wait(?:ing)?\b", text)]
+    if not waits or (tl[-1][0] - waits[0]).total_seconds() < 60:
         return []
     return ["the Stop hook never ran for this goal (no .heartbeat) — check the hooks are installed"]
 
@@ -409,7 +419,7 @@ def main():
     missing += overview_problems(ov, goal)
     missing += commit_problems(goal, head)
     missing += hunt_problems(log, head, tier)
-    missing += heartbeat_problems(goal, log)
+    missing += heartbeat_problems(goal, log, start)
 
     # the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
     # The hook writes the final spend to the header after close-check, so judge by this run's own
