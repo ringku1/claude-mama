@@ -457,6 +457,7 @@ class Lean(HookBase):
 
     def test_budget_at_70_autonomous_raises_itself(self):
         g = self.running_goal()  # autonomous, M = 1M
+        self.run_s("plan-set.py", self.plan(g), "--header", "auto-raise=1x")  # the hook never raises it
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
         self.spend(g, 800000)
         reason = json.loads(self.hook("stop"))["reason"]
@@ -466,7 +467,7 @@ class Lean(HookBase):
 
     def test_budget_at_70_checkpointed_asks(self):
         g = self.running_goal()
-        self.run_s("plan-set.py", self.plan(g), "--header", "mode=checkpointed")
+        self.run_s("plan-set.py", self.plan(g), "--header", "mode=checkpointed", "auto-raise=1x")
         self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
         os.utime(os.path.join(g, "overview.md"))
         self.spend(g, 800000)
@@ -491,22 +492,120 @@ class Lean(HookBase):
         self.run_s("log.py", log, "E", "wait agent")
         self.assertEqual(self.hook("stop"), "")  # answered
 
-    def test_hunt_not_converging_asks_to_simplify(self):
-        g = self.running_goal()
+    def set_head(self, g, old, new):
+        s = self.read(self.plan(g))
+        self.assertIn(old, s)
+        open(self.plan(g), "w", encoding="utf-8").write(s.replace(old, new, 1))
+
+    def test_hunt_cap_full_asks_after_round_2(self):
+        g = self.running_goal()  # no tier: header: an old goal counts as full (cap 2)
         log = os.path.join(g, "log.md")
         self.run_s("log.py", log, "E", "hunt 1: 9 found, 6 real, 0 fixed yet, 2 minor — /code-review high")
-        self.run_s("log.py", log, "E", "hunt 1: 9 found, 6 real, 6 fixed, 2 minor — /code-review high")  # same round again
-        self.run_s("log.py", log, "E", "fixes for round 1 verified")
+        self.run_s("log.py", log, "E", "hunt 1: 9 found, 6 real, 6 fixed, 2 minor — /code-review high")
         self.run_s("log.py", log, "E", "wait hunt 2")
-        self.assertEqual(self.hook("stop"), "")
-        self.run_s("log.py", log, "E", "hunt 2: 8 found, 6 real, 0 fixed yet — /code-review high")
+        self.assertEqual(self.hook("stop"), "")  # under the cap: the next round comes anyway
+        self.run_s("log.py", log, "E", "hunt 2: 3 found, 1 real, 0 fixed yet — /code-review low + expectations check")
         self.run_s("log.py", log, "E", "wait fixes")
-        self.assertIn("isn't converging (real bugs: 6 → 6)", json.loads(self.hook("stop"))["reason"])
-        self.run_s("log.py", log, "D", "simplify the cache part (tag: user)")
+        reason = json.loads(self.hook("stop"))["reason"]
+        self.assertIn("deliver with known issues / one more low round", reason)
+        self.assertNotIn("converging", reason)
+        self.run_s("log.py", log, "D", "hunt: extra round — one more low pass (tag: user)")
         self.run_s("log.py", log, "E", "learn none")
-        self.run_s("log.py", log, "E", "wait simplify")
-        os.utime(os.path.join(g, "overview.md"))
+        self.run_s("log.py", log, "E", "wait hunt 3")
+        self.assertEqual(self.hook("stop"), "")  # answered
+        self.run_s("log.py", log, "E", "hunt 3: 2 found, 1 real, 0 fixed yet — /code-review low + expectations check")
+        self.run_s("log.py", log, "E", "wait fixes")
+        self.assertIn("one more low round", json.loads(self.hook("stop"))["reason"])  # the extra round found more
+        self.run_s("log.py", log, "D", "ship it: deliver with known issues listed (tag: user)")  # the old wording
+        self.run_s("log.py", log, "E", "learn none")
+        self.run_s("log.py", log, "E", "wait fixes")
         self.assertEqual(self.hook("stop"), "")
+
+    def test_hunt_cap_is_one_round_for_standard_and_quick(self):
+        g = self.running_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("plan-set.py", self.plan(g), "--header", "tier=standard")
+        self.run_s("log.py", log, "E", "hunt 1: 4 found, 0 real, 0 fixed, 2 minor, 2 trade-off — /code-review high")
+        self.run_s("log.py", log, "E", "wait agent")
+        self.assertEqual(self.hook("stop"), "")  # trade-offs aren't real bugs
+        self.run_s("log.py", log, "E", "hunt 1: 4 found, 1 real, 0 fixed, 2 minor, 1 trade-off — /code-review high")
+        self.run_s("log.py", log, "E", "wait agent")
+        self.assertIn("one more low round", json.loads(self.hook("stop"))["reason"])
+        q = self.running_goal("q")
+        self.set_head(q, "mode: autonomous | tier: —", "mode: quick | tier: —")  # quick mode, no tier: quick
+        qlog = os.path.join(q, "log.md")
+        self.run_s("log.py", qlog, "E", "hunt 1: 2 found, 1 real, 0 fixed — /code-review low")
+        self.run_s("log.py", qlog, "E", "wait agent")
+        self.assertIn("one more low round", json.loads(self.hook("stop"))["reason"])
+
+    def auto_raise_goal(self, mode="autonomous"):
+        g = self.running_goal()  # M = 1M, approved M
+        if mode != "autonomous":
+            self.run_s("plan-set.py", self.plan(g), "--header", f"mode={mode}")
+        self.assertIn("approved: M | auto-raise: 1.5x", self.read(self.plan(g)))  # set at approval
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        os.utime(os.path.join(g, "overview.md"))
+        return g
+
+    def test_budget_auto_raises_once_then_asks(self):
+        for mode in ("checkpointed", "autonomous"):
+            with self.subTest(mode=mode):
+                self.setUp()
+                g = self.auto_raise_goal(mode)
+                self.spend(g, 800000)
+                self.assertEqual(self.hook("stop"), "")  # raised itself: no block
+                self.assertRegex(self.read(self.plan(g)), r"budget: ~800k / L 1\.5M \|")
+                self.assertRegex(self.read(os.path.join(g, "log.md")),
+                                 r"\nD\d+ \d\d:\d\d budget auto-raised to L 1\.5M \(tag: auto\)\n")
+                self.spend(g, 300000)  # 1.1M of 1.5M: 73% of the raised ceiling
+                self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent 2")
+                reason = json.loads(self.hook("stop"))["reason"]
+                self.assertIn("Budget at 73%", reason)
+                self.assertEqual(self.read(os.path.join(g, "log.md")).count("auto-raised"), 1)
+
+    def marker_overview(self, g, mtime):
+        ov = os.path.join(g, "overview.md")
+        with open(ov, "w", encoding="utf-8") as f:
+            f.write("# Demo\n\n<!-- mama:auto:start -->\n**Status:** Working · 0 of 1 parts done\n"
+                    "<!-- mama:auto:end -->\n\n## Goal\n\nBuild the thing.\n")
+        os.utime(ov, (mtime, mtime))
+
+    def test_overview_stale_only_for_scope_waiting_or_close(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        t = time.time()
+        self.marker_overview(g, t - 100)
+        self.assertEqual(self.hook("stop"), "")
+        mark = os.path.join(g, ".milestone")
+        open(mark, "a").close()
+        os.utime(mark, (t + 10, t + 10))  # a ★ step done: no prose refresh due
+        self.assertEqual(self.hook("stop"), "")
+        self.run_s("plan-set.py", self.plan(g), "S+", "title=b", "verify=v")  # scope changed
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent 2")
+        self.assertIn("since overview.md was written", json.loads(self.hook("stop"))["reason"])
+        os.utime(os.path.join(g, "overview.md"))  # refreshed
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent 3")
+        self.assertEqual(self.hook("stop"), "")
+        self.marker_overview(g, time.time() - 100)
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=waiting")
+        self.assertIn("since overview.md was written", json.loads(self.hook("stop"))["reason"])
+
+    def test_overview_without_markers_keeps_every_milestone(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        ov = os.path.join(g, "overview.md")
+        with open(ov, "w", encoding="utf-8") as f:
+            f.write("# Demo\n\n**Status:** Working · 0 of 1 parts done\n\n## Goal\n\nBuild the thing.\n")  # an old goal's
+        mark = os.path.join(g, ".milestone")
+        os.utime(mark, (time.time() + 10, time.time() + 10))
+        self.assertIn("since overview.md was written", json.loads(self.hook("stop"))["reason"])
+
+    def test_heartbeat_on_every_stop_of_an_open_goal(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.spend(g, 42000)
+        self.hook("stop")
+        self.assertRegex(self.read(os.path.join(g, ".heartbeat")), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\S* 42k\n?$")
 
     def test_closed_goal_measured_once_then_cache_deleted(self):
         g = self.running_goal()
@@ -648,6 +747,34 @@ class HookDeadline(HookBase):
         ds = [float(l) for l in self.read(rec).split()]
         self.assertTrue(ds, ds)
         self.assertLess(ds[0], t + 6.5)  # 6s from the file's first statement, process start included
+
+    def test_failed_spend_measure_is_a_problem_and_logged(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        self.stub_spend(hook, "raise RuntimeError('disk  gone')")
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertIn("spend not measured: RuntimeError: disk gone — see ~/.claude/mama/hook-errors.log", reason)
+        self.assertIn("RuntimeError: disk gone", self.read(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
+        self.assertRegex(self.read(os.path.join(g, ".heartbeat")), r"^\S+ -\n?$")
+
+    def test_cut_measure_still_writes_a_heartbeat(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        self.stub_spend(hook, "measure.partial = True\nreturn 900000")
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.hook("stop", hook=hook)
+        self.assertRegex(self.read(os.path.join(g, ".heartbeat")), r"^\S+ -\n?$")
+
+    def test_optional_check_errors_are_logged(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        with open(os.path.join(os.path.dirname(os.path.dirname(hook)), "scripts", "close-check.py"), "a",
+                  encoding="utf-8") as f:
+            f.write("\n\ndef hunt_rounds(*a, **k):\n    raise ValueError('hunt boom')\n")
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.assertEqual(self.hook("stop", hook=hook), "")
+        self.assertIn("ValueError: hunt boom", self.read(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
 
     def test_partial_spend_is_not_written_or_judged(self):
         hook = self.skill_with_close_check("sys.exit(0)")

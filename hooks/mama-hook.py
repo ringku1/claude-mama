@@ -21,13 +21,17 @@ no goal — the hooks never read transcripts to guess ownership.
 - stop:         measures the goal's spend into plan.md (a closed goal's cache is then deleted, also
                 for the session's earlier closed goals);
                 blocks the stop (with every problem listed) if this session's goal:
-                is `running` at ≥70% of its budget ceiling (autonomous: raise it within 2× and go on;
-                otherwise ask: continue / cut scope / stop); is a quick goal past 300k tokens or 30
-                active minutes with no `D … quick …` answer yet (offer a full goal); has a bug-hunt
-                round with no fewer real bugs than the one before and no user decision since (ask:
-                simplify / fix again / deliver with known issues);
+                is `running` at ≥70% of its budget ceiling (first, while the ceiling is under the approved
+                size × the header's `auto-raise: <f>x`, the hook raises it there itself, logs
+                `D budget auto-raised to <size> (tag: auto)` and doesn't block; then autonomous: raise it
+                within 2× and go on; otherwise ask: continue / cut scope / stop); is a quick goal past 300k
+                tokens or 30 active minutes with no `D … quick …` answer yet (offer a full goal); has a
+                bug-hunt round at or past its tier's cap (quick/standard 1, full 2, plus one per
+                `D hunt: extra round`) with real bugs and no `D hunt: …` / `… deliver with known issues …`
+                decision after it (ask: deliver with known issues / one more low round);
                 is `running` without a final `wait`/`dispatch` log line; reached a milestone after
-                overview.md was written;
+                overview.md was written (an overview with a generated block: only a scope change, the
+                status going to waiting, or an abort count — see overview_stale);
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
                 or says `done` while close-check.py fails (the hook's close check skips commit checks:
                 plan-set's close check at status=done runs them in full). The same problem list blocks only once
@@ -41,6 +45,9 @@ no goal — the hooks never read transcripts to guess ownership.
                 deadline is not the spend, so it is neither written nor judged that turn; past the deadline no
                 optional check starts (quick, hunt, overview, learning, closed goals' measures): the block lists
                 what was found by then.
+                Every Stop on an open goal writes <goal>/.heartbeat (`<ISO time> <spend>k`, or `-` when the
+                measure was cut or failed). Loud guards: every caught error is appended to hook-errors.log, and
+                a spend measure that raises is itself a problem ("spend not measured: …").
 """
 import time
 
@@ -111,7 +118,10 @@ def step_aside(mode):
             settings = json.load(f)
         entries = settings["hooks"][EVENTS[mode]]
         return any(_install_entry(h, mode) for e in entries for h in e["hooks"])
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError):
+        return False  # no settings or no such hook: the usual case, nothing to report
+    except Exception as e:
+        report(mode, e)
         return False
 
 
@@ -122,7 +132,8 @@ def main_checkout(cwd):
         try:
             r = subprocess.run(["git", "-C", cwd, "rev-parse", *args, "--git-common-dir"],
                                capture_output=True, text=True, timeout=5)
-        except Exception:
+        except Exception as e:
+            report("sessionstart", e)
             return None
         lines = r.stdout.strip().splitlines()
         return lines[-1].strip() if r.returncode == 0 and lines and not lines[-1].startswith("--") else None
@@ -152,8 +163,22 @@ def read_goal(goal_dir):
         "progress": fields.get("progress", "?").strip(),
         "worktree": fields.get("worktree", "n/a").strip(),
         "approved": fields.get("approved", "—").strip(),
+        "tier": tier_of(fields),
         "plan": plan,
     }
+
+
+TIERS = {"quick", "standard", "full"}
+HUNT_CAP = {"quick": 1, "standard": 1, "full": 2}
+
+
+def tier_of(fields):
+    """The header's `tier:`; missing or unset (old goals, — before research picks it): full, or quick for
+    a `mode: quick` goal."""
+    t = fields.get("tier", "").strip()
+    if t in TIERS:
+        return t
+    return "quick" if fields.get("mode", "").strip() == "quick" else "full"
 
 
 def goals(store):
@@ -163,11 +188,17 @@ def goals(store):
     return [g for g in found if g]
 
 
+_LOADED = {}
+
+
 def _load(name, file):
+    if name in _LOADED:
+        return _LOADED[name]
     import importlib.util
     spec = importlib.util.spec_from_file_location(name, os.path.join(SCRIPTS, file))
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    _LOADED[name] = m
     return m
 
 
@@ -192,11 +223,16 @@ def log_text(plan):
         return ""
 
 
+AUTO_RAISED = re.compile(r"D\d+ \d\d:\d\d budget auto-raised to .*\(tag: auto\)$")  # the hook's own line
+
+
 def waiting_on_background(plan):
     """True if the goal's last log line is `E<n> HH:MM wait|dispatch ...` — ending the turn to
     wait on background work (agents just dispatched, the gate) is legitimate; its notification
-    wakes the session. A dispatch line counts, so no extra `wait` line is needed after it."""
-    lines = [l.strip() for l in log_text(plan).splitlines() if re.match(r"\s*[EDFQ]\d+ ", l)]
+    wakes the session. A dispatch line counts, so no extra `wait` line is needed after it. The hook's own
+    `D budget auto-raised …` line is skipped: it was written after the session's last line."""
+    lines = [l.strip() for l in log_text(plan).splitlines()
+             if re.match(r"\s*[EDFQ]\d+ ", l) and not AUTO_RAISED.match(l.strip())]
     return bool(lines) and re.match(r"E\d+ \d\d:\d\d (wait|dispatch)\b", lines[-1]) is not None
 
 
@@ -221,18 +257,61 @@ def unlearned(plan):
     return mt < tl[last][0]
 
 
+AUTO_START = "<!-- mama:auto:start -->"
+WATCH = ".overview-watch"  # what the last Stop saw: status, scope, when the prose last became due
+ROW_ID = re.compile(r"^\|\s*([SC]\d+)\s*\|", re.M)
+
+
 def overview_stale(plan):
-    """The overview's prose is older than the last milestone plan-set marked (step done/blocked,
-    status or PR changed, scope added). Its Status line is synced on every write, so ordinary
-    plan writes don't count. Goals from before milestones: plan.md newer than overview.md."""
+    """The overview's prose is older than the last milestone. An overview with a generated block
+    (between the mama:auto markers, regenerated from state) needs its hand-written parts refreshed only
+    for a scope change (steps or criteria added), the status going to waiting, or an abort — never for a
+    ★ step done (the block shows progress); these are tracked by watched_milestone. Older overviews: the
+    last milestone plan-set marked (step done/blocked, status or PR changed, scope added); goals from
+    before milestones: plan.md newer than overview.md. The Status line is synced on every write."""
     goal = os.path.dirname(plan)
     ov = os.path.join(goal, "overview.md")
     try:
+        with open(ov, encoding="utf-8") as f:
+            generated = AUTO_START in f.read()
+        if generated:
+            return watched_milestone(plan) > os.path.getmtime(ov) + 2
         mark = os.path.join(goal, ".milestone")
         ref = os.path.getmtime(mark) if os.path.exists(mark) else os.path.getmtime(plan)
         return ref > os.path.getmtime(ov) + 2
     except OSError:
         return False
+
+
+def watched_milestone(plan):
+    """When the prose last became due (epoch, 0 = never): compares the plan's status and scope (step and
+    criterion IDs) with what the last Stop saw (<goal>/.overview-watch); a change to waiting or aborted,
+    or new rows once past planning, dates a milestone at plan.md's mtime (the write that made it). Done
+    doesn't count: the close check already demands the final report."""
+    path = os.path.join(os.path.dirname(plan), WATCH)
+    with open(plan, encoding="utf-8") as f:
+        text = f.read()
+    m = re.search(r"status: (\w+)", text[:3000])
+    status = m.group(1) if m else "?"
+    scope = sorted(set(ROW_ID.findall(text)))
+    try:
+        with open(path, encoding="utf-8") as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        seen = None
+    at = seen.get("at", 0) if isinstance(seen, dict) else 0
+    due = status in ("waiting", "aborted")
+    if isinstance(seen, dict):
+        due = (due and status != seen.get("status")) or (
+            scope != seen.get("scope") and status != "planning" and seen.get("status") != "planning")
+    if due:
+        at = max(at, os.path.getmtime(plan))
+    if not isinstance(seen, dict) or due or seen.get("status") != status or seen.get("scope") != scope:
+        try:
+            fileio.write_atomic(path, json.dumps({"status": status, "scope": scope, "at": at}))
+        except Exception as e:
+            report("stop", e)
+    return at
 
 
 PARTIAL = "PARTIAL: spend measure cut"  # close-check's line when MAMA_SPEND_DEADLINE cut its measure
@@ -254,7 +333,8 @@ def close_problems(plan):
     try:
         r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), goal],
                            capture_output=True, text=True, timeout=left, env=env)
-    except Exception:
+    except Exception as e:
+        report("stop", e)
         return unfinished, True
     lines = r.stdout.strip().splitlines()
     partial = PARTIAL in (l.strip() for l in lines)
@@ -284,19 +364,27 @@ def quick_outgrown(g, spent):
     return total is not None and total - cc.waiting_minutes(log, start) >= QUICK_MINUTES
 
 
-def hunt_stalled(plan):
-    """(previous, last) real-bug counts when the last bug-hunt round found 2+ real bugs and no fewer
-    than the round before it, with no user decision since — fixes are making new bugs. Else None."""
-    log = log_text(plan)
+HUNT_LINE = re.compile(r"^E\d+ \S+ hunt (\d+):.*$", re.M)
+HUNT_DECISION = re.compile(r"^D\d+ \S+ (?:hunt:|.*\bdeliver with known issues\b)", re.M)
+
+
+def hunt_capped(g):
+    """(round, real bugs, cap) when the last bug-hunt round is at or past the tier's cap (quick/standard 1,
+    full 2; each `D hunt: extra round` allows one more) and found real bugs (trade-offs aren't real), with
+    no hunt decision (`D hunt: …`, or the old `D … deliver with known issues …`) after it. Else None."""
+    log = log_text(g["plan"])
     by_round = {k: real for k, real in _load("mama_close_check", "close-check.py").hunt_rounds(log)
-                if real is not None}  # a round logged twice (found, then fixed) counts once
-    rounds = sorted(by_round.items())
-    if len(rounds) < 2 or rounds[-1][1] < 2 or rounds[-1][1] < rounds[-2][1]:  # 1 → 1 isn't worth a stop
+                if real is not None}  # a round logged twice (found, then fixed): its last count
+    if not by_round:
         return None
-    last = [m.end() for m in re.finditer(r"^E\d+ \S+ hunt \d+:.*$", log, re.M)][-1]
-    if re.search(r"^D\d+ \S+ .*tag: user", log[last:], re.M):
+    k = max(by_round)
+    cap = HUNT_CAP[g["tier"]]
+    if k < cap or not by_round[k]:
         return None
-    return rounds[-2][1], rounds[-1][1]
+    last = [m.end() for m in HUNT_LINE.finditer(log) if int(m.group(1)) == k][-1]
+    if HUNT_DECISION.search(log[last:]):
+        return None
+    return k, by_round[k], cap
 
 
 def measure_budget(plan, transcript, closed=False):
@@ -344,8 +432,61 @@ def drop_closed_caches(inp, earlier):
             continue
         try:
             measure_budget(g["plan"], inp.get("transcript_path", ""), closed=True)
-        except Exception:
-            pass
+        except Exception as e:
+            report("stop", e)
+
+
+def size_text(tokens):
+    """A budget size for tokens, as plan-set accepts it: `L 1.5M`, `L 450k`."""
+    if tokens >= 1_000_000 and tokens % 100_000 == 0:
+        return f"L {tokens / 1_000_000:g}M"
+    return f"L {round(tokens / 1000)}k"
+
+
+def auto_raise(g):
+    """While the ceiling is under the approved size × the header's `auto-raise: <f>x` (1.0–2.0; missing:
+    1x, never), raise it there (plan header, under plan_lock, mtime kept) and log
+    `D budget auto-raised to <size> (tag: auto)`; return the new size, else None."""
+    with open(g["plan"], encoding="utf-8") as f:
+        head = f.read(3000).split("\n## ")[0]
+    m = re.search(r"auto-raise: ([\d.]+)\s*x", head)
+    try:
+        f_ = min(2.0, float(m.group(1))) if m else 1.0
+    except ValueError:
+        f_ = 1.0
+    sp = _load("mama_spend", "spend.py")
+    approved = sp.ceiling(g["approved"])
+    if f_ <= 1.0 or not approved:
+        return None
+    target = int(round(approved * f_))
+    size = size_text(target)
+    with fileio.plan_lock(g["plan"]):
+        _, _, cur = sp.window(g["plan"])
+        c = sp.ceiling(cur)
+        if not c or c >= target:
+            return None
+        st = os.stat(g["plan"])
+        with open(g["plan"], encoding="utf-8") as f:
+            text = f.read()
+        new = re.sub(r"(budget: [^/|\n]*/ ?)[^|\n]*?(?=\s*(?:\||$))", lambda mm: mm.group(1) + size, text,
+                     count=1, flags=re.M)
+        if new == text:
+            return None
+        fileio.write_atomic(g["plan"], new)
+        os.utime(g["plan"], (st.st_atime, st.st_mtime))
+    # not recorded as a write: the hook's own line never claims a goal for a session
+    mama_log.write(os.path.join(g["dir"], "log.md"), "D", f"budget auto-raised to {size} (tag: auto)", record=False)
+    return size
+
+
+def heartbeat(g, spent):
+    """<goal>/.heartbeat: this Stop ran (close-check and plan-set check it). `-`: no spend measured."""
+    k = f"{round(spent / 1000)}k" if spent is not None else "-"
+    try:
+        fileio.write_atomic(os.path.join(g["dir"], ".heartbeat"),
+                            f"{datetime.datetime.now().isoformat(timespec='seconds')} {k}\n")
+    except Exception as e:
+        report("stop", e)
 
 
 def block_once(goal_dir, reason, problems, cut):
@@ -389,8 +530,10 @@ def stop(inp, g):
     if g["status"] in OPEN:  # a closed goal's final measure judges nothing: optional, after the checks
         try:
             pct, spent = measure_budget(g["plan"], inp.get("transcript_path", ""))
-        except Exception:
-            pass
+        except Exception as e:
+            report("stop", e)
+            problems.append(f"spend not measured: {one_line(e)} — see ~/.claude/mama/hook-errors.log")
+        heartbeat(g, spent)
     def late():  # past DEADLINE no optional check starts: the block goes out with what was gathered
         return time.time() >= DEADLINE
 
@@ -402,8 +545,14 @@ def stop(inp, g):
                 "active minutes). Tell the user and ask: continue as a full goal (set mode checkpointed/autonomous "
                 "and a budget; the close check then asks for everything) or keep it quick — log the answer as "
                 "`D … quick … (tag: user)`.")
-    except Exception:
-        pass
+    except Exception as e:
+        report("stop", e)
+    if g["status"] == "running" and pct is not None and pct >= 70:
+        try:
+            if auto_raise(g):
+                pct = None  # raised itself within what the user allowed: no block for the budget
+        except Exception as e:
+            report("stop", e)
     if g["status"] == "running" and pct is not None and pct >= 70:
         raise_to = ("raise the ceiling with headroom — measured spend + what's left estimated + 30% "
                     "(e.g. budget='~…k / L 1.5M') — so it doesn't come back every turn")
@@ -419,14 +568,17 @@ def stop(inp, g):
                 f"continue / cut scope / stop. On continue, {raise_to}.")
     try:
         cut = cut or late()
-        stalled = hunt_stalled(g["plan"]) if g["status"] in OPEN and not cut else None
-    except Exception:
-        stalled = None
-    if stalled:
+        capped = hunt_capped(g) if g["status"] in OPEN and not cut else None
+    except Exception as e:
+        report("stop", e)
+        capped = None
+    if capped:
+        k, real, cap = capped
         problems.append(
-            f"The bug hunt isn't converging (real bugs: {stalled[0]} → {stalled[1]}) — fixes are making new bugs. "
-            "Stop fixing: set status waiting and ask the user: simplify the part that keeps breaking (recommended) / "
-            "fix and hunt again / deliver with the known issues listed (rules/loop.md → Bug hunt).")
+            f"Bug hunt round {k} found {real} real bug(s) and the {g['tier']} tier's cap is {cap} round(s). Fix them "
+            "(fix steps, failing-first), then set status waiting and ask the user: deliver with known issues / one "
+            "more low round — log the answer as `D hunt: deliver with known issues … (tag: user)` or "
+            "`D hunt: extra round … (tag: user)` (rules/loop.md → Bug hunt).")
     if g["status"] == "running" and not waiting_on_background(g["plan"]):
         problems.append(
             f"Goal is still marked running ({g['progress']}). Continue with the next step, or set an honest "
@@ -436,14 +588,15 @@ def stop(inp, g):
     if cut:
         pass
     elif overview_stale(g["plan"]):
-        problems.append("A milestone (a ★ step finished, a step blocked, the status, PR or scope changed) since overview.md "
-                        "was written — regenerate overview.md (the user's only window); its Status line is synced for you.")
+        problems.append("A milestone (the scope or status changed, or a ★ step finished or a step blocked on an older "
+                        "overview) since overview.md was written — refresh overview.md (the user's only window); its "
+                        "Status line is synced for you.")
     elif g["status"] in OPEN:
         try:
             with open(os.path.join(g["dir"], "overview.md"), encoding="utf-8") as f:
                 problems += _load("mama_close_check", "close-check.py").overview_problems(f.read(), g["dir"])
-        except Exception:
-            pass
+        except Exception as e:
+            report("stop", e)
     cut = cut or late()
     if not cut and g["mode"] != "quick" and unlearned(g["plan"]):
         problems.append(
@@ -464,8 +617,8 @@ def stop(inp, g):
     if g["status"] not in OPEN:
         try:
             measure_budget(g["plan"], inp.get("transcript_path", ""), closed=True)
-        except Exception:
-            pass
+        except Exception as e:
+            report("stop", e)
 
 
 def maybe_self_update():
@@ -495,8 +648,8 @@ def main(mode):
         raise IMPORT_ERROR
     try:
         maybe_self_update()
-    except Exception:
-        pass  # updating is a convenience; the hook's own job comes first
+    except Exception as e:
+        report(mode, e)  # updating is a convenience; the hook's own job comes first
     try:
         inp = json.load(sys.stdin)
     except ValueError:
@@ -550,13 +703,18 @@ def main(mode):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ctx}}))
 
 
+def one_line(err):
+    return " ".join(f"{type(err).__name__}: {err}".split())
+
+
 def report(mode, err):
+    """Append `<time> <mode> <Type>: <msg>` to hook-errors.log; never raises."""
     try:
         os.makedirs(os.path.dirname(ERRORS), exist_ok=True)
-        msg = " ".join(f"{type(err).__name__}: {err}".split())
+        msg = one_line(err)
         with open(ERRORS, "a", encoding="utf-8") as f:
             f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {mode or '-'} {msg}\n")
-    except Exception:
+    except Exception:  # noqa: the error log itself can't be written: nowhere left to report
         pass
 
 
