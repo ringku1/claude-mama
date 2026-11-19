@@ -27,7 +27,7 @@ Before work starts and right before push: `git -C <main checkout> fetch origin`,
   - Bad: `feat: implement S3 per plan` · `wip` · `update files`
 - Ground rules apply (no attribution, no local artifacts); also never mention mama.
 - Never bypass hooks (`--no-verify`, `LEFTHOOK=0`); fix the cause.
-- Log `commit <shorthash>`.
+- Record it with the step: `step.py <plan> S3 done "…" --commit <shorthash>` (a commit outside a step: log `E commit <shorthash>`).
 
 ## Push
 
