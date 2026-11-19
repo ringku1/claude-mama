@@ -204,6 +204,68 @@ class Spend(Base):
         self.assertEqual(self.measure(a), "100")
         self.assertEqual(self.measure(b), "5000")
 
+    def run_py(self, body):
+        """Run body (python, after `import spend`) in a subprocess with the test env; its stdout lines."""
+        code = f"import sys, glob; sys.path.insert(0, {S!r}); import spend\n" + body
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=self.env())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.split()
+
+    def test_scan_cut_returns_on_any_line(self):
+        sys.path.insert(0, S)
+        import spend
+        user = json.dumps({"message": {"role": "user", "content": "x" * 5000}, "type": "user",
+                           "timestamp": utc(self.m(2))}, separators=(",", ":")) + "\n"
+        path = self.transcript("sess-a", [user] * 50 + [line(self.m(3), "a", 100)])
+        e = spend.scan(path, {}, 0, deadline=0)
+        self.assertTrue(e["cut"])
+        self.assertEqual(e["off"], len(user.encode()))  # one line of progress, not every tool result
+
+    def test_candidates_dated_once_and_within_deadline(self):
+        a, b, write = self.old_goal()
+        self.transcript("sess-a", [write, line(self.m(2), "m1", 100)])
+        for i in range(5):  # began after the record: their writes are recorded, so they never count
+            self.transcript(f"later-{i}", [line(self.m(11 + i), f"l{i}", 9)])
+        count = ("n = [0]; f0 = spend._first_ts\n"
+                 "def f(x):\n    n[0] += 1\n    return f0(x)\n"
+                 "spend._first_ts = f\n")
+        # past the deadline the candidate search stops after one file and says so
+        out = self.run_py(count + f"print(spend.measure({self.plan(a)!r}, deadline=0), spend.measure.partial, n[0])")
+        self.assertEqual(out[1:], ["True", "1"])
+        self.assertEqual(self.run_py(f"print(spend.measure({self.plan(a)!r}, deadline=float('inf')))"), ["100"])
+        # a transcript already dated is not opened again
+        out = self.run_py(count + f"print(spend.measure({self.plan(a)!r}), n[0])")
+        self.assertEqual(out, ["100", "0"])
+
+    def test_cut_candidate_search_keeps_found_sessions(self):
+        a, b, write = self.old_goal()
+        sort = "_g = glob.glob; glob.glob = lambda p: sorted(_g(p))\n"  # a-cand is searched before sess-a
+        cand = [line(self.m(k), f"c{k}", 7) for k in range(2, 9)]  # pre-birth, never wrote to `old`
+        pc = self.transcript("a-cand", cand)
+        self.transcript("sess-a", [write, line(self.m(2), "m1", 100)], sub=[line(self.m(3), "s1", 1000)])
+        go = sort + f"print(spend.measure({self.plan(a)!r}, deadline=%s))"
+        self.assertEqual(self.run_py(go % "float('inf')"), ["1100"])
+        self.transcript("a-cand", cand, mode="a")  # grown: the cut lands on it, before sess-a is reached
+        self.run_py(go % "0")
+        files = self.cache(a)
+        self.assertTrue(all("use" in e for p, e in files.items() if "sess-a" in p), files)
+        self.transcript("sess-a", [line(self.m(4), "m2", 20)], mode="a")
+        self.assertEqual(self.run_py(go % "float('inf')"), ["1120"])
+        self.assertNotIn("use", self.cache(a)[pc])
+
+    def test_slim_subagent_entry_is_read_again(self):
+        a, b, write = self.old_goal()
+        pa = self.transcript("sess-a", [write, line(self.m(2), "m1", 100)], sub=[line(self.m(3), "s1", 1000)])
+        go = f"print(spend.measure({self.plan(a)!r}, deadline=float('inf')))"
+        self.assertEqual(self.run_py(go), ["1100"])
+        # a cache left by an older version: the session's subagent slimmed
+        cache = json.load(open(os.path.join(a, ".spend-cache.json"), encoding="utf-8"))
+        sub = [p for p in cache["files"] if "subagents" in p][0]
+        cache["files"][sub] = {k: cache["files"][sub].get(k) for k in ("size", "off", "first", "last", "writes")}
+        open(os.path.join(a, ".spend-cache.json"), "w", encoding="utf-8").write(json.dumps(cache))
+        self.assertEqual(self.run_py(go), ["1100"])
+        self.assertIn(pa, self.cache(a))
+
     def test_cli_writes_the_budget(self):
         g = self.goal("one")
         self.activity([(self.m(1), "sess-a", g)])

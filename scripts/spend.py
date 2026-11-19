@@ -15,7 +15,8 @@ One pass per transcript, cached in <goal>/.spend-cache.json (per file: size, off
 per-second sums), so later turns read only the bytes added since. measure() stops reading at its
 deadline (default DEADLINE seconds), saves what it read and returns the partial sum; the next call
 resumes there. Transcripts searched for older sessions that turn out not to be one keep only a
-slim entry (no message ids or sums), so the cache stays small.
+slim entry (no message ids or sums), so the cache stays small; ones that began after activity.log
+keep only their first time ({"first": t}, a dated entry), so they are not opened again.
 """
 import calendar, datetime, glob, json, os, re, sys, time
 
@@ -202,13 +203,15 @@ def scan(path, entry, since, deadline=INF):
                 break  # still being written: read it next time
             off += len(line)
             if time.time() >= deadline and off < size:
-                cut = True
+                cut = True  # returned below on an assistant line, or right away on any other
             if first is None:
                 first = _ts(line)
             # only assistant lines carry usage and tool calls; the rest (prompts, tool results,
             # attachments, snapshots — most of the bytes) are skipped on their first 1000 bytes
             role = _role(line)
             if role != b"assistant" and (role is not None or line.find(b'"assistant"', 0, 1000) == -1):
+                if cut:
+                    break
                 continue
             hit = _usage(line, seen, role)
             if hit:
@@ -225,8 +228,10 @@ def scan(path, entry, since, deadline=INF):
                     ts = _ts(line)
                     writes.append([last if ts is None else ts, s[-1]])
             if cut:
-                return {"size": off, "off": off, "first": first, "last": last, "ids": ids, "use": use,
-                        "writes": writes, "cut": True}
+                break
+    if cut:
+        return {"size": off, "off": off, "first": first, "last": last, "ids": ids, "use": use,
+                "writes": writes, "cut": True}
     return {"size": size, "off": off, "first": first, "last": last, "ids": ids, "use": use, "writes": writes}
 
 
@@ -323,10 +328,10 @@ def measure(plan, transcript=None, deadline=None):
 
     def entry(path, full=False):
         """path's cache entry, read up to date unless the deadline cut a read already this call
-        (then as cached, or None). full: a slim entry is read again from the start."""
+        (then as cached, or None). full: a slim or dated entry is read again from the start."""
         nonlocal dirty
         old = files.get(path, {})
-        if full and old and "use" not in old:
+        if old and "use" not in old and (full or "off" not in old):
             old = {}
         if measure.partial:
             return old or None
@@ -341,22 +346,35 @@ def measure(plan, transcript=None, deadline=None):
         p = transcript_of(sid, transcript)
         if p:
             sessions[p] = sid
+    def early(e):
+        """True when entry e records a write to this goal from before activity.log existed."""
+        return any(s == slug and t is not None and t < birth for t, s in e.get("writes") or [])
+
+    searched = True  # the search for earlier sessions saw every candidate (else nothing is slimmed)
     if lo < birth:  # the goal predates the record: find its earlier sessions in the transcripts
+        progress = False
         for p in glob.glob(os.path.join(glob.escape(projects_dir()), "*", "*.jsonl")):
-            if measure.partial:
+            if measure.partial or (progress and time.time() >= deadline):
+                measure.partial, searched = True, False
                 break
             try:
                 if p in sessions or os.path.getmtime(p) < lo:
                     continue
-                if p not in files:
+                old = files.get(p)
+                if old is None:
+                    progress = True
                     with open(p, "rb") as f:
                         t = _first_ts(f)
                     if t is not None and t >= birth:
+                        files[p], dirty = {"first": t}, True
                         continue  # began after the record did: its writes are recorded
+                elif "off" not in old and old.get("first") is not None and old["first"] >= birth:
+                    continue  # dated on an earlier call
             except OSError:
                 continue
             e = entry(p)
-            if e and any(s == slug and t is not None and t < birth for t, s in e["writes"]):
+            progress = progress or bool(e) and e is not old
+            if e and early(e):
                 sessions[p] = os.path.splitext(os.path.basename(p))[0]
 
     total, counted = 0, False
@@ -366,21 +384,25 @@ def measure(plan, transcript=None, deadline=None):
         if not wins:
             continue
         counted = True
-        total += sum(c for k, c in e["use"].items() if inside(int(k), wins))
+        total += sum(c for k, c in e.get("use", {}).items() if inside(int(k), wins))
         for sub in glob.glob(os.path.join(glob.escape(os.path.splitext(p)[0]), "subagents", "*.jsonl")):
             try:
                 if os.path.getmtime(sub) < lo:
                     continue
             except OSError:
                 continue
-            se = entry(sub)
-            if se and se["first"] is not None and inside(se["first"], wins):
-                total += sum(c for k, c in se["use"].items() if int(k) <= hi)
-    dirs = {os.path.splitext(p)[0] for p in sessions}
-    keep = set(sessions) | {f for f in files if os.path.dirname(os.path.dirname(f)) in dirs}  # + subagents
-    for p, e in files.items():
-        if p not in keep and not e.get("cut") and "use" in e:  # read whole, and not a session
-            files[p], dirty = {k: e.get(k) for k in SLIM}, True
+            se = entry(sub, full=True)
+            if se and se.get("first") is not None and inside(se["first"], wins):
+                total += sum(c for k, c in se.get("use", {}).items() if int(k) <= hi)
+    # slim only when the search saw every candidate, and never a session (found now or on an
+    # earlier call) or a file under its subagents folder
+    if searched:
+        dirs = {os.path.splitext(p)[0] for p in set(sessions) | {f for f, e in files.items() if early(e)}}
+        for p, e in files.items():
+            if os.path.splitext(p)[0] in dirs or os.path.dirname(os.path.dirname(p)) in dirs:
+                continue
+            if not e.get("cut") and "use" in e:  # read whole, and not a session
+                files[p], dirty = {k: e.get(k) for k in SLIM}, True
     if dirty:
         try:
             fileio.write_atomic(os.path.join(goal, CACHE), json.dumps(cache, separators=(",", ":")))
