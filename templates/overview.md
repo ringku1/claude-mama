@@ -4,43 +4,35 @@ overview.md — the ONLY file the user reads. Rules:
 - Current state only: written fresh each time, no "was / replaces / updated" history notes.
 - Short: aim to fit on one screen; detail belongs in plan.md / log.md.
 - Drop sections that are empty (except Goal, Done means, Timeline, Where we are).
-- The **Status:** line is kept by plan-set.py (`<Word> · n of m parts done`, plus an optional ` · detail`); keep its shape.
+- Between the mama:auto markers is generated (scripts/overview.py, after every plan write): Status, Done means, Timeline (from `log.py <log> U "<plain text>"` lines), Where we are, Needs your input. Never edit inside the markers; only an optional ` · detail` after the Status line's progress is kept.
+- Hand-write everything outside the markers.
 - Delete this comment block in the real file.
 -->
 
 # <Goal title in plain words>
 
-**Status:** <Planning | Waiting for you | Working | Paused | Blocked | Done> · <one-line progress, e.g. "7 of 12 parts done">
+<!-- mama:auto:start -->
+**Status:** Planning
+
+## Done means
+
+- [ ] Set when the plan is ready
+
+## Timeline
+
+| When | What |
+| ---- | ---- |
+
+## Where we are
+
+Planning: research and questions come first.
+<!-- mama:auto:end -->
 
 ## Goal
 
 <2-4 sentences: what we're building or finding out, and why.>
 
 **Started from:** <the input in one line — "Trello card: Course filters", "your message", "docs/x.md">
-
-## Done means
-
-- [x] <criterion in plain words> — <how it was proven, plain: "tests for filtering by price pass">
-- [ ] <criterion>
-
-## Timeline
-
-| When  | What                                   |
-| ----- | -------------------------------------- |
-| 10:02 | Started; researching the existing code |
-| 10:20 | Plan approved                          |
-| 10:41 | Filter API done and tested             |
-| now   | Building the filter panel — ETA 11:15  |
-
-**Estimated finish:** <HH:MM, or "unknown until X"> — at close, drop the "now" row and this line; the last row is the finish time.
-
-## Where we are
-
-<2-4 lines: what's working now, what's next.>
-
-## Needs your input
-
-- <question / approval / blocker, in plain words — or omit section>
 
 ## Key decisions
 
