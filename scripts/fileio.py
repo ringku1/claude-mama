@@ -7,7 +7,6 @@ locked(f):    an exclusive lock on an open file (fcntl on Linux/macOS, msvcrt on
 import contextlib
 import os
 import sys
-import tempfile
 import time
 
 # Goal files and messages hold "—", "·", "★", "⅔": print UTF-8 even where the console isn't
@@ -19,10 +18,22 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
+def _mktemp(d):
+    """tempfile.mkstemp without importing tempfile (~10 ms): a new, private file in d."""
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    for _ in range(100):
+        tmp = os.path.join(d, ".tmp-" + os.urandom(6).hex())
+        try:
+            return os.open(tmp, flags, 0o600), tmp
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"no free temp name in {d}")
+
+
 def write_atomic(path, text):
     """Write text to a temp file beside path, then rename it over path."""
     d = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-")
+    fd, tmp = _mktemp(d)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)

@@ -54,12 +54,16 @@ def record(goal_dir):
                   "so no session owns the goal (hooks and spend ignore it).", file=sys.stderr)
         return
     goal_dir = canon(goal_dir)
-    os.makedirs(os.path.dirname(PATH), exist_ok=True)
-    with open(PATH, "a+", encoding="utf-8") as f, fileio.locked(f):
-        mine = [e for e in entries() if e[1] == sid]
-        if mine and mine[-1][2] == goal_dir:
-            return
-        f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {sid} {goal_dir}\n")
+    try:  # the goal's own write already happened; an unwritable home must not fail it
+        os.makedirs(os.path.dirname(PATH), exist_ok=True)
+        with open(PATH, "a+", encoding="utf-8") as f, fileio.locked(f):
+            mine = [e for e in entries() if e[1] == sid]
+            if mine and mine[-1][2] == goal_dir:
+                return
+            f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {sid} {goal_dir}\n")
+    except OSError as e:
+        print(f"mama: can't write {PATH} ({e.strerror or e}) — this session's ownership isn't recorded",
+              file=sys.stderr)
 
 
 def timeline(sid):
