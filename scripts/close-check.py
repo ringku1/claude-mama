@@ -199,8 +199,7 @@ def step_ids(text, known):
     plan's own step ids (known) between its ends by numeric order, an end without a letter taking its
     lettered steps (S2-S4 takes S4a, S4b; S4-S6 takes S4a), so the ends need not be ids themselves. Each
     end must be a plan id or the number of one; otherwise, or when the range runs backwards, it counts
-    as its ends only, a bare end as the plan step it names, else literal (S1-20261119 is S1 and
-    20261119; S5-2 is S5 and S2)."""
+    as its literal ends only (S1-20261119 is S1 and 20261119; S5-2 is S5 and 2)."""
     keys = [(k, sid) for sid in known for k in [_key(sid)] if k]
     nums = {k[0] for k, _ in keys}
 
@@ -214,7 +213,7 @@ def step_ids(text, known):
             continue
         end = hi if hi.startswith("S") else "S" + hi
         if not (bound(lo) and bound(end) and _key(lo) <= _key(end)):
-            out.update((lo, end if end in known else hi))  # S5-2: S5 and the plan's S2
+            out.update((lo, hi))  # S5-2: S5 and 2, its literal ends
             continue
         top = _key(end)
         top = top if top[1] else (top[0], "\uffff")  # an end without a letter takes its lettered steps
@@ -416,6 +415,8 @@ def main():
 
     for m in missing:
         print("MISSING:", m)
+    if cut:  # only under MAMA_SPEND_DEADLINE (the Stop hook): by hand the measure is never cut
+        print("PARTIAL: spend measure cut")
     print("METRICS:", line)
     print(f'LEARN: learn.py goal "<what it was> ({head.get("type", "?")}, {len(live)} steps): est {est}m critical path / {size}, actual {mins} / {spent} measured"')
     print("OK — ready to close" if not missing else f"NOT READY — {len(missing)} missing")

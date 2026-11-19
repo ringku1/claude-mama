@@ -183,7 +183,8 @@ class CloseBase(Base):
     def test_backwards_bare_range_keeps_its_literal_ends(self):
         cc = load_cc()
         known = ["S1", "S2", "S3", "S4", "S5"]
-        self.assertEqual(cc.step_ids("S5-2", known), {"S5", "S2"})  # backwards: its ends, the bare one as the plan's S2
+        self.assertEqual(cc.step_ids("S5-2", known), {"S5", "2"})  # backwards: its literal ends
+        self.assertEqual(cc.step_ids("S9-2", known), {"S9", "2"})  # start no plan id: its literal ends
         self.assertEqual(cc.step_ids("S5-S2", known), {"S5", "S2"})
         self.assertEqual(cc.step_ids("S5-7", known), {"S5", "7"})  # S7 is no plan step: literal
 
@@ -424,6 +425,12 @@ class SpendDeadline(Base):
         e = self.cached(g, t)
         self.assertTrue(e.get("cut"), e)
         self.assertLess(e["off"], os.path.getsize(t))
+
+    def test_cut_measure_prints_a_partial_marker_only_under_the_hook(self):
+        g, t = self.goal_with_spend()
+        self.assertIn("PARTIAL: spend measure cut", self.close_check(g, MAMA_SPEND_DEADLINE="0"))
+        os.remove(os.path.join(g, ".spend-cache.json"))
+        self.assertNotIn("PARTIAL", self.close_check(g))  # by hand: read in full, output unchanged
 
     def test_budget_check_uses_its_own_measure(self):
         g, t = self.goal_with_spend()

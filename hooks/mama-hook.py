@@ -29,9 +29,12 @@ no goal — the hooks never read transcripts to guess ownership.
                 is `running` without a final `wait`/`dispatch` log line; reached a milestone after
                 overview.md was written;
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
-                or says `done` while close-check.py fails. The same problem list blocks only once
-                (kept in the goal's .last-block); a changed list blocks again (a deadline-cut run's partial
-                list only for a problem the last block didn't name, and it is never kept).
+                or says `done` while close-check.py fails (the hook's close check skips commit checks:
+                plan-set's close check at status=done runs them in full). The same problem list blocks only once
+                (kept in the goal's .last-block); a changed list blocks again. A cut run (past the deadline, or
+                a close check that didn't finish or had its spend measure cut) has a partial list: it blocks only
+                for a problem the last block didn't name, and then keeps the last block's problems plus its own,
+                so a run of cut Stops doesn't block every turn.
                 Claude Code kills the hook at 10s, counted from before bash, the launcher's Python probe and
                 the imports: all its work shares one deadline (HOOK_BUDGET from this file's first statement,
                 the rest kept for that start-up and for work past the deadline); a done goal's close check runs before the hook's own measure; a measure cut by the
@@ -82,7 +85,8 @@ def claude_dir():
 
 def _install_entry(h, mode):
     """h is install.py's exec-form entry for mode, and both its files exist: command the interpreter (a file,
-    not a WindowsApps stub), args exactly [<…/mama-hook.py>, mode]. Command strings are never parsed."""
+    not the bare WindowsApps stub — a Microsoft Store Python's own folder under WindowsApps is real), args
+    exactly [<…/mama-hook.py>, mode]. Command strings are never parsed."""
     if not isinstance(h, dict):
         return False
     cmd, args = h.get("command"), h.get("args")
@@ -90,7 +94,7 @@ def _install_entry(h, mode):
             and isinstance(args[0], str)):
         return False
     parts = cmd.replace("\\", "/").lower().split("/")
-    return ("windowsapps" not in parts and os.path.isfile(cmd)
+    return ((len(parts) < 2 or parts[-2] != "windowsapps") and os.path.isfile(cmd)
             and args[0].replace("\\", "/").split("/")[-1] == "mama-hook.py" and os.path.isfile(args[0]))
 
 
@@ -98,7 +102,8 @@ def step_aside(mode):
     """This is a plugin copy (MAMA_VIA = its plugin root, set by hooks.json) and settings.json runs, for this
     mode's event, the one-liner's entry exactly as install.py writes it: running both would do the work twice.
     Anything else (a command string, a hand edit, a stale entry, unreadable settings) runs the plugin copy:
-    a double run is the accepted worst case."""
+    a double run is the accepted worst case. (Either copy's close check skips commit checks; plan-set's close
+    check at status=done runs them in full.)"""
     if not os.environ.get("MAMA_VIA") or mode not in EVENTS:
         return False
     try:
@@ -230,25 +235,33 @@ def overview_stale(plan):
         return False
 
 
+PARTIAL = "PARTIAL: spend measure cut"  # close-check's line when MAMA_SPEND_DEADLINE cut its measure
+
+
 def close_problems(plan):
-    """The close checklist's failures ("" if it passes). A close check that runs out of the hook's
-    time budget, crashes or can't start is a problem itself — never a silent pass, and never an
-    error that drops the other problems."""
+    """(the close checklist's failures or "" if it passes, partial). A close check that runs out of the
+    hook's time budget, crashes or can't start is a problem itself — never a silent pass, and never an
+    error that drops the other problems. partial: it didn't finish, or its spend measure was cut (its
+    PARTIAL line, dropped from the text), so its list may be short. It skips commit checks (the hook
+    sets MAMA_SPEND_DEADLINE); plan-set's close check at status=done runs them."""
     goal = os.path.dirname(plan)
     unfinished = f"close check didn't finish — run scripts/close-check.py {goal}"
     left = DEADLINE - CLOSE_CHECK_RESERVE - time.time()
     if left < MIN_WORK:
-        return unfinished
+        return unfinished, True
     # its spend measure must fit too: stop reading transcripts before its time ends
     env = dict(os.environ, MAMA_SPEND_DEADLINE=str(time.time() + max(0.0, left - CLOSE_CHECK_SPEND_MARGIN)))
     try:
         r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), goal],
                            capture_output=True, text=True, timeout=left, env=env)
     except Exception:
-        return unfinished
+        return unfinished, True
+    lines = r.stdout.strip().splitlines()
+    partial = PARTIAL in (l.strip() for l in lines)
+    out = "\n".join(l for l in lines if l.strip() != PARTIAL).strip()
     if r.returncode == 0:
-        return ""
-    return r.stdout.strip() or unfinished
+        return "", partial
+    return (out, partial) if out else (unfinished, True)
 
 
 QUICK_TOKENS, QUICK_MINUTES = 300_000, 30  # past either, a quick goal has outgrown quick mode
@@ -337,7 +350,8 @@ def drop_closed_caches(inp, earlier):
 
 def block_once(goal_dir, reason, problems, cut):
     """Print the block unless it repeats the last block for this goal word for word. A cut run's list is
-    partial: it blocks only for a problem the last block didn't name, and is never remembered."""
+    partial: it blocks only for a problem the last block didn't name, and then remembers the last block's
+    problems plus its own, so the next cut run stays quiet (a later full run blocks at most once more)."""
     last = os.path.join(goal_dir, ".last-block")
     try:
         with open(last, encoding="utf-8") as f:
@@ -345,12 +359,16 @@ def block_once(goal_dir, reason, problems, cut):
     except OSError:
         before = ""
     if cut:
-        if any(f"\n- {p}\n- " not in before + "\n- " for p in problems):
-            print(json.dumps({"decision": "block", "reason": reason}), flush=True)
+        new = [p for p in problems if f"\n- {p}\n- " not in before + "\n- "]
+        if not new:
+            return
+        print(json.dumps({"decision": "block", "reason": reason}), flush=True)
+        old = before.split("\n- ")[1:] if before else []
+        reason = "\n- ".join([reason.split("\n- ", 1)[0]] + old + new)
+    elif before == reason:
         return
-    if before == reason:
-        return
-    print(json.dumps({"decision": "block", "reason": reason}), flush=True)  # out before any later kill
+    else:
+        print(json.dumps({"decision": "block", "reason": reason}), flush=True)  # out before any later kill
     try:
         fileio.write_atomic(last, reason)
     except OSError:
@@ -366,7 +384,7 @@ def stop(inp, g):
         return  # a goal closed earlier — don't nag about it in later, unrelated turns
     problems = []
     # a done goal's close check first: it warms the spend cache, and the hook's own measure can't starve it
-    close_out = close_problems(g["plan"]) if g["status"] == "done" else ""
+    close_out, close_partial = close_problems(g["plan"]) if g["status"] == "done" else ("", False)
     pct, spent = None, None
     if g["status"] in OPEN:  # a closed goal's final measure judges nothing: optional, after the checks
         try:
@@ -435,6 +453,7 @@ def stop(inp, g):
         problems.append(close_out)
     elif close_out:
         problems.append("Status is done but the close checklist fails:\n" + close_out)
+    cut = cut or close_partial  # a partial close check: its list may be short, as a cut run's
     if problems:
         block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems), problems, cut)
     elif not cut:  # a cut run doesn't know the list is empty: the last block stays remembered

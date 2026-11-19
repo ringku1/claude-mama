@@ -182,8 +182,28 @@ class Stop(HookBase):
         self.assertEqual(self.hook("stop"), "")  # full run: unchanged since the block
         os.remove(os.path.join(g, ".last-block"))
         self.assertIn("still marked running", json.loads(self.hook("stop", hook=cut))["reason"])  # new to it: blocks
-        self.assertFalse(os.path.exists(os.path.join(g, ".last-block")))  # a partial list is never remembered
+        self.assertIn("still marked running", self.read(os.path.join(g, ".last-block")))  # remembered (union)
+        self.assertEqual(self.hook("stop", hook=cut), "")  # every Stop cut: the same problem doesn't block each turn
         self.assertIn("nothing was learned", json.loads(self.hook("stop"))["reason"])
+        self.assertEqual(self.hook("stop"), "")  # the full list blocks once
+        self.assertEqual(self.hook("stop", hook=cut), "")
+
+    def partial_close_check_stays_quiet(self, body):
+        # close-check that didn't finish, or whose spend measure was cut, gave a partial list: a block whose
+        # problems the last block already named stays quiet
+        hook = self.skill_with_close_check(body)
+        g = self.done_goal_with_another_problem()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertNotIn("PARTIAL", reason)
+        with open(os.path.join(g, ".last-block"), "w", encoding="utf-8") as f:
+            f.write(reason + "\n- an older problem")
+        self.assertEqual(self.hook("stop", hook=hook), "")
+
+    def test_close_check_with_a_cut_measure_counts_as_a_cut_run(self):
+        self.partial_close_check_stays_quiet("print('MISSING: x'); print('PARTIAL: spend measure cut'); sys.exit(1)")
+
+    def test_unfinished_close_check_counts_as_a_cut_run(self):
+        self.partial_close_check_stays_quiet("sys.exit(1)")
 
     def test_unwritable_last_block_still_blocks_and_exits_cleanly(self):
         g = self.running_goal()
@@ -310,6 +330,16 @@ class OnceOnly(HookBase):
             out = self.hook("precompact", MAMA_VIA=self.market(), path=os.path.dirname(sys.executable))
             self.assertIn("keep: the slug 'demo'", out, interp)
         self.settings(self.one_liner())
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "")
+
+    def test_microsoft_store_python_is_a_real_interpreter(self):
+        # only the bare stub (parent folder WindowsApps) is refused; the Store's own python.exe is a real file
+        self.running_goal()
+        store = os.path.join(self.tmp, "AppData", "Local", "Microsoft", "WindowsApps",
+                             "PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0", "python.exe")
+        os.makedirs(os.path.dirname(store))
+        open(store, "w").close()
+        self.settings(self.one_liner(command=store))
         self.assertEqual(self.hook("precompact", MAMA_VIA=self.market()), "")
 
     def test_script_name_must_be_exactly_mama_hook_py(self):
