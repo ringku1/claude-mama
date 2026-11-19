@@ -182,21 +182,35 @@ def hunt_problems(log, head, quick):
 
 
 ACCEPT = re.compile(r"^D\d+ \S+ .*unverified accepted:(.*)$", re.M)
-STEP_REF = re.compile(r"(?<![\w./:#-])S\d+[a-z]?(?:-S?\d+)?(?![\w/:-])")  # S3, S6a, a range S2-S4
-STATUS_CHANGE = re.compile(r"\b(status|reopen(ed|s)?|rework(ed|s)?|redo(ne)?|pass(ed|es)?|fail(ed|s)?|"
-                           r"running|testing|fixing|verified)\b", re.I)
+STEP_REF = re.compile(r"(?<![\w./:#-])(S\d+[a-z]?)(?:[-\u2013](S?\d+[a-z]?))?(?![\w/:-])")  # S3, S6a, S2-S4, S6a\u2013S6c
 
 
-def step_ids(text):
-    """Step ids a log line names, ranges expanded like plan-set's deps (estimate.expand)."""
-    return set(estimate.expand(" ".join(STEP_REF.findall(text))))
+def _key(sid):
+    m = re.fullmatch(r"S(\d+)([a-z]?)", sid)
+    return (int(m.group(1)), m.group(2)) if m else None
 
 
-def unverified_problems(log, ids):
+def step_ids(text, known):
+    """Step ids a log line names. A range (S on both ends: S2-S4, S6a-S6c, an en dash too) expands
+    to the plan's own step ids (known) between its ends; a range with an end that isn't a plan step,
+    no S on its end, or ends backwards counts as its literal ends only (S1-20261119 is S1)."""
+    keys = [(k, sid) for sid in known for k in [_key(sid)] if k]
+    out = set()
+    for lo, hi in STEP_REF.findall(text):
+        out.add(lo)
+        if not hi:
+            continue
+        out.add(hi)
+        if lo in known and hi in known and hi.startswith("S") and _key(lo) <= _key(hi):
+            out.update(sid for k, sid in keys if _key(lo) <= k <= _key(hi))
+    return out
+
+
+def unverified_problems(log, ids, known):
     """Unverified steps close only once the user accepted them: the last `D … unverified accepted:
-    <ids> … (tag: user)` line lists every one (ranges like S2-S4 count), and no later log line changes
-    one's status (names it with a status word: reopened, reworked, pass, fail, …) — a step changed
-    after the acceptance is asked about again; a mere mention doesn't void it."""
+    <ids> … (tag: user)` line lists every one (ranges like S2-S4 count), and no later E/D/F/Q log line
+    names one (another `unverified accepted:` line aside) — a step named after the acceptance is asked
+    about again. known: the plan's step ids, which bound a range."""
     if not ids:
         return []
     line = f"`D unverified accepted: {','.join(ids)} — <why> (tag: user)`"
@@ -204,14 +218,13 @@ def unverified_problems(log, ids):
     if not accepts:
         return [f"steps {', '.join(ids)} are unverified — ask the user to accept them unverified, then log {line}"]
     last = accepts[-1]
-    listed = step_ids(last.group(1))
+    listed = step_ids(last.group(1), known)
     absent = [i for i in ids if i not in listed]
     if absent:
         return [f"the last unverified acceptance doesn't list {', '.join(absent)} — ask the user about every "
                 f"unverified step, then log {line}"]
     later = [l for l in log[last.end():].splitlines()
-             if re.match(r"[EDFQ]\d+ ", l) and "unverified accepted:" not in l
-             and step_ids(l) & set(ids) and STATUS_CHANGE.search(l)]
+             if re.match(r"[EDFQ]\d+ ", l) and "unverified accepted:" not in l and step_ids(l, known) & set(ids)]
     if later:
         return [f"steps {', '.join(ids)} changed after the user accepted them unverified — ask again, then log {line}"]
     return []
@@ -244,21 +257,21 @@ def spend_deadline():
 
 
 def measured_spend(goal, head):
-    """The goal's measured token spend (None if unknown or cut short by spend_deadline). A closed goal
-    whose cache the Stop hook already deleted reads the final number from the plan header instead of
-    rebuilding the cache."""
+    """(the goal's measured token spend, cut): spend is None if unknown or cut short by spend_deadline,
+    and cut is True only when the deadline cut the read. A closed goal whose cache the Stop hook
+    already deleted reads the final number from the plan header instead of rebuilding the cache."""
     if head.get("status") in ("done", "aborted") and not os.path.exists(os.path.join(goal, ".spend-cache.json")):
         m = re.match(r"~(\d+)k", head.get("budget", ""))
-        return int(m.group(1)) * 1000 if m else None
+        return (int(m.group(1)) * 1000 if m else None), False
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("mama_spend", os.path.join(os.path.dirname(os.path.abspath(__file__)), "spend.py"))
         sp = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(sp)
         total = sp.measure(os.path.join(goal, "plan.md"), deadline=spend_deadline())
-        return None if sp.measure.partial else total  # cut short: not the spend, so not compared
+        return (None, True) if sp.measure.partial else (total, False)  # cut short: not the spend, so not compared
     except Exception:
-        return None
+        return None, False
 
 
 def main():
@@ -287,7 +300,7 @@ def main():
             missing.append(f"fix step {s[0]} has no failing-first test — add `failing-first: <test>` or "
                            "`no test: <why>` to its notes (rules/loop.md → Bug hunt)")
     unverified = [s[0] for s in live if s[si["status"]] == "unverified"]
-    unverified_missing = unverified_problems(log, unverified)
+    unverified_missing = unverified_problems(log, unverified, [s[0] for s in steps])
     missing += unverified_missing
     accepted = any("tag: user" in a.group(1) for a in ACCEPT.finditer(log)) and not unverified_missing
 
@@ -298,7 +311,11 @@ def main():
         if junk:
             missing.append(f"{name} still has template placeholders ({', '.join(sorted(set(junk))[:3])})")
 
-    if re.search(r"budget: ~0k", plan) and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
+    # the Stop hook writes the final spend to the header after close-check, so judge by this run's own
+    # measure; a measure the hook's deadline cut proves nothing, so that run skips the check
+    measured, cut = measured_spend(goal, head)
+    no_spend = (measured is not None and measured < 500) if measured is not None else re.search(r"budget: ~0k", plan)
+    if not cut and no_spend and re.search(r"^E\d+ \S+ (dispatch|wait)", log, re.M):
         missing.append("budget still ~0k though work ran — the Stop hook writes it; run scripts/spend.py <transcript> <plan> --write")
 
     chdr, crit = estimate.table(plan, "Criteria")
@@ -350,7 +367,6 @@ def main():
     if not quick and not os.path.exists(profile_p):
         missing.append("no profile.md in the store — create it from templates/profile.md (research goals too)")
 
-    measured = measured_spend(goal, head)
     ml = claimed_tokens(lessons, slug)
     if measured and ml:
         claimed = float(ml[0]) * (1000 if ml[1] == "M" else 1)

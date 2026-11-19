@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -143,15 +144,32 @@ class CloseBase(Base):
         self.run_s("log.py", log, "D", "unverified accepted: S1-S2 — no device here (tag: user)")
         self.assertIn("unverified S1,S2 (accepted)", self.close(g, ok=True))
 
-    def test_only_a_status_change_voids_the_acceptance(self):
+    def test_any_later_line_naming_the_step_voids_the_acceptance(self):
         g = self.ready_goal()
         p, log = self.plan(g), os.path.join(g, "log.md")
         self.run_s("plan-set.py", p, "S1", "status=unverified")
         self.run_s("log.py", log, "D", "unverified accepted: S1 — no device here (tag: user)")
-        self.run_s("log.py", log, "E", "report: S1 listed under follow-ups")
-        self.close(g, ok=True)  # a mention isn't a change
-        self.run_s("log.py", log, "E", "S1 reopened: verify can run now")
-        self.close(g, ok=False)
+        self.run_s("log.py", log, "E", "S2 started")
+        self.close(g, ok=True)  # another step's line leaves it
+        for later in ("re-dispatch S1 — retry", "S1 fixed", "S1 done", "S1 blocked", "report: S1 listed under follow-ups"):
+            with self.subTest(later=later):
+                self.run_s("log.py", log, "E", later)
+                self.assertIn("changed after the user accepted them unverified", self.close(g, ok=False))
+                self.run_s("log.py", log, "D", "unverified accepted: S1 — still no device (tag: user)")
+                self.close(g, ok=True)  # asked again: a new acceptance is not a change
+
+    def test_step_ids_expand_only_plan_ids(self):
+        cc = load_cc()
+        known = ["S1", "S2", "S3", "S4", "S6", "S6a", "S6b", "S6c", "S7"]
+        self.assertEqual(cc.step_ids("accepted: S2-S4", known), {"S2", "S3", "S4"})
+        self.assertEqual(cc.step_ids("accepted: S2\u2013S4", known), {"S2", "S3", "S4"})  # en dash
+        self.assertEqual(cc.step_ids("accepted: S6a-S6c", known), {"S6a", "S6b", "S6c"})
+        self.assertEqual(cc.step_ids("S1, S7 and S6b", known), {"S1", "S7", "S6b"})
+        t = time.time()
+        self.assertIn("S1", cc.step_ids("E dispatch S1-20261119", known))  # no S on the end: its ends only
+        self.assertEqual(cc.step_ids("see S1-S20261119", known), {"S1", "S20261119"})  # past the plan: its ends
+        self.assertEqual(cc.step_ids("S4-S2", known), {"S4", "S2"})  # backwards: its ends
+        self.assertLess(time.time() - t, 0.5)
 
     def test_unverified_fix_step_needs_a_failing_first_test(self):
         g = self.ready_goal()
@@ -377,6 +395,17 @@ class SpendDeadline(Base):
         e = self.cached(g, t)
         self.assertTrue(e.get("cut"), e)
         self.assertLess(e["off"], os.path.getsize(t))
+
+    def test_budget_check_uses_its_own_measure(self):
+        g, t = self.goal_with_spend()
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "dispatch S1 — build")
+        self.assertIn("budget: ~0k", self.read(self.plan(g)))  # the hook writes the header after close-check
+        self.assertNotIn("budget still ~0k", self.close_check(g))  # measured 2000k: work was counted
+        os.remove(os.path.join(g, ".spend-cache.json"))
+        self.assertNotIn("budget still ~0k", self.close_check(g, MAMA_SPEND_DEADLINE="0"))  # cut: not judged
+        os.remove(t)
+        os.remove(os.path.join(g, ".spend-cache.json"))
+        self.assertIn("budget still ~0k", self.close_check(g))  # measured nothing though work ran
 
     def test_by_hand_reads_it_all(self):
         g, t = self.goal_with_spend()
