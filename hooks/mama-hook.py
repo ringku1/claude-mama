@@ -132,6 +132,8 @@ def main_checkout(cwd):
         try:
             r = subprocess.run(["git", "-C", cwd, "rev-parse", *args, "--git-common-dir"],
                                capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return None  # no git, or it hung: expected, nothing to report
         except Exception as e:
             report("sessionstart", e)
             return None
@@ -365,13 +367,14 @@ def quick_outgrown(g, spent):
 
 
 HUNT_LINE = re.compile(r"^E\d+ \S+ hunt (\d+):.*$", re.M)
-HUNT_DECISION = re.compile(r"^D\d+ \S+ (?:hunt:|.*\bdeliver with known issues\b)", re.M)
+HUNT_DECISION = re.compile(r"^D\d+ \S+ (?:hunt: extra round|.*deliver with known issues).*tag: user", re.M)  # close-check's EXTRA / DELIVER
 
 
 def hunt_capped(g):
     """(round, real bugs, cap) when the last bug-hunt round is at or past the tier's cap (quick/standard 1,
     full 2; each `D hunt: extra round` allows one more) and found real bugs (trade-offs aren't real), with
-    no hunt decision (`D hunt: …`, or the old `D … deliver with known issues …`) after it. Else None."""
+    no user's hunt decision (`D hunt: extra round … (tag: user)`, or `D … deliver with known issues … (tag: user)`,
+    as close-check reads them) after it. Else None."""
     log = log_text(g["plan"])
     by_round = {k: real for k, real in _load("mama_close_check", "close-check.py").hunt_rounds(log)
                 if real is not None}  # a round logged twice (found, then fixed): its last count
@@ -549,8 +552,10 @@ def stop(inp, g):
         report("stop", e)
     if g["status"] == "running" and pct is not None and pct >= 70:
         try:
-            if auto_raise(g):
-                pct = None  # raised itself within what the user allowed: no block for the budget
+            raised = auto_raise(g)
+            if raised:  # raised itself within what the user allowed: judged again against the new ceiling
+                c = _load("mama_spend", "spend.py").ceiling(raised)
+                pct = round(100 * spent / c) if c and spent is not None else None
         except Exception as e:
             report("stop", e)
     if g["status"] == "running" and pct is not None and pct >= 70:
@@ -568,7 +573,8 @@ def stop(inp, g):
                 f"continue / cut scope / stop. On continue, {raise_to}.")
     try:
         cut = cut or late()
-        capped = hunt_capped(g) if g["status"] in OPEN and not cut else None
+        # waiting: the question is already put to the user, so the same ask isn't made again
+        capped = hunt_capped(g) if g["status"] in OPEN and g["status"] != "waiting" and not cut else None
     except Exception as e:
         report("stop", e)
         capped = None

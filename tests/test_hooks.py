@@ -152,6 +152,16 @@ class WhoseGoal(HookBase):
             self.assertIn("\\n- demo ", out, name)  # the cwd's store was found
 
 
+    def test_expected_git_failures_stay_out_of_the_error_log(self):
+        self.running_goal()
+        errors = os.path.join(self.home, ".claude", "mama", "hook-errors.log")
+        no_git = os.path.join(self.tmp, "no-git")  # git not on PATH: FileNotFoundError
+        os.makedirs(no_git)
+        self.hook("sessionstart", PATH=no_git)
+        self.hook("sessionstart", cwd=self.tmp)  # not a repo
+        self.assertFalse(os.path.exists(errors) and "sessionstart" in self.read(errors))
+
+
 class Stop(HookBase):
     def test_same_problems_block_once_changed_block_again(self):
         g = self.running_goal()
@@ -562,6 +572,35 @@ class Lean(HookBase):
                 reason = json.loads(self.hook("stop"))["reason"]
                 self.assertIn("Budget at 73%", reason)
                 self.assertEqual(self.read(os.path.join(g, "log.md")).count("auto-raised"), 1)
+
+    def test_spend_past_the_raised_ceiling_still_asks(self):
+        g = self.auto_raise_goal()
+        self.spend(g, 1200000)  # 1.2M: past 70% of the 1.5M it raises to
+        reason = json.loads(self.hook("stop"))["reason"]
+        self.assertIn("Budget at 80%", reason)
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~1200k / L 1\.5M \|")
+
+    def capped_goal(self):
+        g = self.running_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("plan-set.py", self.plan(g), "--header", "tier=standard")
+        self.run_s("log.py", log, "E", "hunt 1: 2 found, 1 real, 0 fixed yet — /code-review high")
+        return g, log
+
+    def test_hunt_decision_needs_the_users_tag(self):
+        for line in ("hunt: deliver with known issues (tag: auto)", "hunt: extra round", "ship: deliver with known issues"):
+            with self.subTest(line=line):
+                self.setUp()
+                g, log = self.capped_goal()
+                self.run_s("log.py", log, "D", line)
+                self.run_s("log.py", log, "E", "wait agent")
+                self.assertIn("one more low round", json.loads(self.hook("stop"))["reason"])
+
+    def test_hunt_cap_quiet_while_the_question_is_pending(self):
+        g, log = self.capped_goal()
+        self.run_s("plan-set.py", self.plan(g), "--header", "status=waiting")
+        os.utime(os.path.join(g, "overview.md"))
+        self.assertNotIn("one more low round", self.hook("stop"))
 
     def marker_overview(self, g, mtime):
         ov = os.path.join(g, "overview.md")
