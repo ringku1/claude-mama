@@ -33,13 +33,13 @@ Done when: <criterion> — proven by: <verify command>
 Relevant decisions: D3 <choice>, D7 <choice>
 Relevant findings: F2 <claim — file:line>
 Repo rules: <the 1-3 that matter, e.g. "use the api-module skill">
-Rules: no commits (orchestrator commits); no tracking-file edits; quiet commands, failures only.
+Rules: no commits (orchestrator commits); no git stash/checkout/reset/restore/switch (shared worktree); no tracking-file edits; quiet commands, failures only.
 Return ≤10 lines: done? · files changed · verify result (pass/fail + key line) · issues/decisions you had to make.
 ```
 
 Research-lens brief: `rules/research.md`. Test-agent brief: same frame, but "Check, don't fix: run <verify>, read the diff for <files>, judge whether the test really exercises <criterion>. Return pass/fail + evidence."
 
-Never pass the conversation, the whole plan or the log. Agents never write `plan.md`, `log.md` or `overview.md`; you record what they report.
+Read-only agents (research lenses, checkers, reviewers) spawn with `subagent_type: Explore`. Never pass the conversation, the whole plan or the log. Agents never write `plan.md`, `log.md` or `overview.md`; you record what they report.
 
 ## Token hygiene (for you and agents)
 

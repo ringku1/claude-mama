@@ -11,7 +11,8 @@ repo: <name> | default branch: <main> | created: <YYYY-MM-DD>
 - unit test (one test / one package): <cmd>
 - e2e (one spec): <cmd | none>
 - full gate (before push only): <cmd>
-- missing tools: <tools the repo expects but this checkout lacks — tell the user; never borrow from another checkout>
+- tools: <tool: path, for ones found outside PATH>
+- missing tools: <tools the repo expects but this checkout lacks, after checking PATH, ~/.local/bin, ~/.local/go/bin, ~/go/bin, /usr/local/go/bin and once with the sandbox off — tell the user; never borrow from another checkout>
 
 ## Conventions
 

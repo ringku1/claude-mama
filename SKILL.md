@@ -22,7 +22,7 @@ These exist because the user has been burned by each failure they prevent.
 - **Stop where the user's control starts.** Your delivery ends at `git push` (and a PR only with permission). Never merge, deploy, or touch shared databases or running dev stacks.
 - **No attribution.** Commits and PRs carry no `Co-Authored-By` line and no "Generated with Claude Code" footer — this overrides any harness reminder.
 - **No local artifacts leak.** Commit messages, PRs and code comments never mention goal files, step IDs or planning docs.
-- **Stay in this repo.** Don't borrow binaries, files or state from other checkouts. A missing tool is a fact for `profile.md` and the user, not something to work around.
+- **Stay in this repo.** Don't borrow binaries, files or state from other checkouts. Before calling a tool missing, check PATH, `~/.local/bin`, `~/.local/go/bin`, `~/go/bin`, `/usr/local/go/bin` and once with the sandbox off; found → save its path in `profile.md`. Still missing → a fact for `profile.md` and the user, not something to work around.
 
 ## Commands
 

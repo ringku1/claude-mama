@@ -67,6 +67,7 @@ Quick goals skip the checklist log; their playback is one line ("You'll get: …
 ## How to ask
 
 - AskUserQuestion: ≤4 questions per screen, 2-4 options, recommended first with "(Recommended)", one-line trade-off each.
+- A Recommended option that depends on code is checked feasible first (file:line or a quick probe); otherwise its description says "unproven".
 - Broad → specific, each round narrowed by answers. Ask every open checklist point, even in a third round; more than ~3 rounds → propose splitting the goal. Each option names its concrete effect ("the list shows deleted files greyed out"), never an abstract label.
 - Log each question as a `Q` line before asking.
 
@@ -79,3 +80,5 @@ Quick goals skip the checklist log; their playback is one line ("You'll get: …
 ## Mid-run
 
 Ask only for one-way choices (`rules/planning.md` → Reversibility), a real goal change, or a blocker you can't route around. Otherwise decide, log, and flag in overview "Key decisions" what the user may want to review.
+
+Autonomous with agents running: never block on AskUserQuestion. Decide reversible things (`D … (tag: assumed)`, flagged in overview), keep verifying and committing, and ask only at a point where status goes `waiting`.

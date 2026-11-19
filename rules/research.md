@@ -20,7 +20,7 @@ A review, audit or "check X" goal with no stated outcome (report only or fixes t
 
 ## Size and record
 
-Economy matters as much as coverage: a small goal gets one or two lenses (none in quick mode), a large one all, a big area more agents split by module. Merge the returns yourself: findings → `F` lines (tag what you checked yourself `verified`), each case → an `F … case:` line, each needed database change → an `F … db:` line, then one `E research: <n> findings, <m> cases, <k> open` line. Spot-check what the plan rests on. Open cases feed the questions; the plan covers every case. Plan a research step only for what stays open; never re-prove a finding.
+Economy matters as much as coverage: a small goal gets one or two lenses (none in quick mode), a large one all, a big area more agents split by module. Merge the returns yourself: findings → `F` lines (tag what you checked yourself `verified`), each case → an `F … case:` line, each needed database change → an `F … db:` line, then one `E research: <n> findings, <m> cases, <k> open` line. Spot-check what the plan rests on; a recommendation that depends on code is checked feasible (file:line or a quick probe) or marked "unproven". Open cases feed the questions; the plan covers every case. Plan a research step only for what stays open; never re-prove a finding.
 
 ## Lens brief (≤ ~200 words)
 

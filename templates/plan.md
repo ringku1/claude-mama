@@ -19,7 +19,8 @@ started: <YYYY-MM-DD HH:MM>
 
 <!--
 kind: build | fix | research | document | decide | hunt | release
-status: todo | running | testing | fixing | done | blocked | obsolete | parked
+status: todo | running | testing | fixing | done | unverified | blocked | obsolete | parked
+unverified: verify needs a service/tool this machine lacks; notes say what didn't run and where it will (e.g. CI); user accepts at close (rules/loop.md → Cycle).
 milestone: "★" in notes on a step that ends a milestone (rules/planning.md → Milestones). Goal status `waiting` = stopped at a checkpoint for the user.
 notes: confidence (L = research/ask first), decision refs (D3), evidence pointer, covered files after pass.
 progress counts live steps (excludes obsolete, parked).

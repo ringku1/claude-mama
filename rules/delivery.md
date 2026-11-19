@@ -54,7 +54,7 @@ Comment right after plan approval (what will change, 1-2 lines), after each push
 
 ## Close
 
-1. Regenerate `overview.md` with the Final report: built/found, how verified, decisions worth review, parked follow-ups, spend.
+1. Regenerate `overview.md` with the Final report: built/found, how verified, `unverified` steps (what didn't run, where it will) and the user's acceptance (`D unverified accepted: … (tag: user)`), decisions worth review, parked follow-ups, spend.
 2. Learning — all required:
    - `<store>/lessons.md` (append under `scripts/lock.py <store>/.shared.lock`) — one metrics line, then any lessons:
      `<date> <slug> <type> | steps <n> | time est <m>m critical path (sum <m>m) / actual <m>m (active <m>m) | tokens est <S/M/L> / ~<n>k | questions <n> (changed plan: <n>) | fix rounds <n> | hunt rounds <n> (real bugs <n>) | checker findings <n> | compactions <n> | wrong assumptions <n> | reversed decisions <n>`
