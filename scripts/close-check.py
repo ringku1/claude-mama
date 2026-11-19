@@ -7,7 +7,7 @@ for build/fix/mixed goals — that the last bug-hunt round found 0 real bugs.
 Prints each missing item, then a prefilled metrics line (fill the `?` fields from memory
 of the run). Exit 0 = ready to set status done; exit 1 = something is missing.
 """
-import datetime, os, re, subprocess, sys
+import datetime, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import clock  # noqa: E402
@@ -90,15 +90,35 @@ def overview_problems(ov, goal=None):
     return out
 
 
+class GitSlow(Exception):
+    """A git call ran past its share of the Stop hook's time."""
+
+
+def _git_timeout():
+    """10s by hand; inside the Stop hook at most half the time left before MAMA_SPEND_DEADLINE (0.3s
+    floor), so slow git can't starve the spend measure that runs after it."""
+    left = spend_deadline() - time.time()
+    return 10 if left == float("inf") else min(10, max(0.3, left / 2))
+
+
 def _git(goal, *args):
     try:
-        r = subprocess.run(["git", "-C", goal, *args], capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["git", "-C", goal, *args], capture_output=True, text=True, timeout=_git_timeout())
+    except subprocess.TimeoutExpired:
+        raise GitSlow()
     except Exception:
         return None
     return r.stdout if r.returncode == 0 else None
 
 
 def commit_problems(goal, head):
+    try:
+        return _commit_problems(goal, head)
+    except GitSlow:
+        return ["commits not checked: git took too long in the Stop hook — run close-check.py by hand to check them"]
+
+
+def _commit_problems(goal, head):
     """This goal's commits — those on the branch (past origin/<base> when base differs) committed
     since the plan's `started:` — carry no attribution lines and no loop internals. Commits pushed
     before this goal began (a continued branch, or work straight on the base) are not its own."""
@@ -191,25 +211,29 @@ def _key(sid):
 
 
 def step_ids(text, known):
-    """Step ids a log line names. A range (S2-S4, S2-4, S6a-S6c, an en dash too) expands to the plan's
-    own step ids (known) between its ends, an upper end without a letter taking its lettered steps
-    (S2-S4 takes S4a); a bare-number end is S<n> only when that is a plan step. A range with an end
-    that isn't a plan step, or ends backwards, counts as its literal ends only (S1-20261119 is S1)."""
+    """Step ids a log line names. A forward range (S2-S4, S2-4, S6a-S6c, an en dash too) expands to the
+    plan's own step ids (known) between its ends by numeric order, an end without a letter taking its
+    lettered steps (S2-S4 takes S4a, S4b; S4-S6 takes S4a), so the ends need not be ids themselves. Each
+    end must be a plan id or the number of one; otherwise, or when the range runs backwards, it counts
+    as its literal ends only (S1-20261119 is S1 and 20261119; S5-2 is S5 and 2)."""
     keys = [(k, sid) for sid in known for k in [_key(sid)] if k]
+    nums = {k[0] for k, _ in keys}
+
+    def bound(sid):
+        return sid in known or (_key(sid) is not None and not _key(sid)[1] and _key(sid)[0] in nums)
+
     out = set()
     for lo, hi in STEP_REF.findall(text):
-        out.add(lo)
         if not hi:
+            out.add(lo)
             continue
         end = hi if hi.startswith("S") else "S" + hi
-        if end not in known:
-            out.add(hi)
+        if not (bound(lo) and bound(end) and _key(lo) <= _key(end)):
+            out.update((lo, hi))
             continue
-        out.add(end)
         top = _key(end)
-        if lo in known and _key(lo) <= top:
-            top = top if top[1] else (top[0], "\uffff")  # S2-S4 takes S4a, S4b
-            out.update(sid for k, sid in keys if _key(lo) <= k <= top)
+        top = top if top[1] else (top[0], "\uffff")  # an end without a letter takes its lettered steps
+        out.update(sid for k, sid in keys if _key(lo) <= k <= top)
     return out
 
 

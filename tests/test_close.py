@@ -180,6 +180,25 @@ class CloseBase(Base):
         self.assertEqual(cc.step_ids("S2-4", known), {"S2", "S3", "S4", "S4a", "S4b"})
         self.assertEqual(cc.step_ids("S3-S4a", known), {"S3", "S4", "S4a"})
 
+    def test_backwards_bare_range_keeps_its_literal_ends(self):
+        cc = load_cc()
+        known = ["S1", "S2", "S3", "S4", "S5"]
+        self.assertEqual(cc.step_ids("S5-2", known), {"S5", "2"})  # backwards: not S2
+        self.assertEqual(cc.step_ids("S5-S2", known), {"S5", "S2"})
+
+    def test_range_ends_need_not_be_plan_ids(self):
+        cc = load_cc()
+        known = ["S1", "S2", "S3", "S4a", "S4b", "S5"]
+        self.assertEqual(cc.step_ids("S2-S4", known), {"S2", "S3", "S4a", "S4b"})
+        self.assertEqual(cc.step_ids("S2-4", known), {"S2", "S3", "S4a", "S4b"})
+        known = ["S1", "S2", "S3", "S4a", "S5", "S6"]
+        self.assertEqual(cc.step_ids("S4-S6", known), {"S4a", "S5", "S6"})
+        t = time.time()
+        self.assertEqual(cc.step_ids("E dispatch S1-20261119", known), {"S1", "20261119"})
+        self.assertEqual(cc.step_ids("see S1-S20261119", known), {"S1", "S20261119"})
+        self.assertEqual(cc.step_ids("S4c-S5", known), {"S4c", "S5"})  # a lettered end not in the plan: literal
+        self.assertLess(time.time() - t, 0.5)
+
     def test_unverified_fix_step_needs_a_failing_first_test(self):
         g = self.ready_goal()
         p, log = self.plan(g), os.path.join(g, "log.md")
@@ -416,20 +435,97 @@ class SpendDeadline(Base):
         os.remove(os.path.join(g, ".spend-cache.json"))
         self.assertIn("no spend measured", self.close_check(g))  # measured nothing though work ran
 
+    def run_in_process(self, g, cc=None, **extra):
+        """Run close-check's main() in this process (HOME the test's), returning its stdout."""
+        import contextlib, io
+        from unittest import mock
+        def drop_script_modules():  # activity.py fixes its path from HOME at import: re-import per HOME
+            for name, m in list(sys.modules.items()):
+                if os.path.dirname(os.path.abspath(getattr(m, "__file__", None) or "/")) == os.path.abspath(S):
+                    del sys.modules[name]
+
+        self.addCleanup(drop_script_modules)
+        cc = cc or load_cc()
+        env = self.env()
+        env.pop("MAMA_SPEND_DEADLINE", None)
+        env.update(extra)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, "argv", ["close-check.py", g]), \
+                contextlib.redirect_stdout(out):
+            drop_script_modules()
+            try:
+                cc.main()
+            except SystemExit:
+                pass
+        return cc, out.getvalue()
+
     def test_git_checks_run_before_the_spend_measure(self):
         """The spend measure may use time up to the hook's deadline, so the git checks go first."""
+        from unittest import mock
         g, t = self.goal_with_spend()
         self.run_s("plan-set.py", self.plan(g), "--header", "base=main", "branch=feat/x")
-        real = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
-        bin_, stamps = os.path.join(self.tmp, "bin"), os.path.join(self.tmp, "git-calls")
-        os.makedirs(bin_)
-        with open(os.path.join(bin_, "git"), "w", encoding="utf-8") as f:
-            f.write(f'#!/bin/sh\n{sys.executable} -c "import time; print(time.time())" >> {stamps}\nexec {real} "$@"\n')
-        os.chmod(os.path.join(bin_, "git"), 0o755)
-        self.close_check(g, PATH=bin_ + os.pathsep + os.environ["PATH"])
-        with open(stamps, encoding="utf-8") as f:
-            last_git = max(float(l) for l in f if l.strip())
-        self.assertLess(last_git, os.path.getmtime(os.path.join(g, ".spend-cache.json")))
+        calls = []
+        cc = load_cc()
+        real_git, real_measured = cc._git, cc.measured_spend
+
+        def git(*a, **k):
+            calls.append("git")
+            return real_git(*a, **k)
+
+        def measured(*a, **k):
+            calls.append("measure")
+            return real_measured(*a, **k)
+
+        with mock.patch.object(cc, "_git", git), mock.patch.object(cc, "measured_spend", measured):
+            self.run_in_process(g, cc=cc)
+        self.assertIn("git", calls)
+        self.assertEqual(calls[-1], "measure", calls)  # every git call came before the measure
+        self.assertEqual(calls.count("measure"), 1, calls)
+
+    def test_hook_deadline_bounds_each_git_call(self):
+        """Inside the hook a git call gets at most half the time left before MAMA_SPEND_DEADLINE (by hand: 10s)."""
+        from unittest import mock
+        cc = load_cc()
+        seen = []
+
+        def run(cmd, **k):
+            seen.append(k.get("timeout"))
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+
+        with mock.patch.object(cc.subprocess, "run", run):
+            with mock.patch.dict(os.environ, {"MAMA_SPEND_DEADLINE": str(time.time() + 4)}):
+                cc._git(self.tmp, "status")
+            with mock.patch.dict(os.environ, {"MAMA_SPEND_DEADLINE": str(time.time() - 5)}):
+                cc._git(self.tmp, "status")
+            with mock.patch.dict(os.environ, {}):
+                os.environ.pop("MAMA_SPEND_DEADLINE", None)
+                cc._git(self.tmp, "status")
+        self.assertLessEqual(seen[0], 2.0)
+        self.assertGreater(seen[0], 1.0)
+        self.assertAlmostEqual(seen[1], 0.3)  # past the deadline: a short floor, not zero
+        self.assertEqual(seen[2], 10)
+
+    def test_slow_git_is_noted_and_the_measure_still_runs(self):
+        from unittest import mock
+        g, t = self.goal_with_spend()
+        self.run_s("plan-set.py", self.plan(g), "--header", "base=main", "branch=feat/x")
+        real_run = subprocess.run
+        gits = []
+
+        def run(cmd, **k):
+            if cmd and cmd[0] == "git":
+                gits.append(cmd)
+                raise subprocess.TimeoutExpired(cmd, k.get("timeout"))
+            return real_run(cmd, **k)
+
+        with mock.patch.object(subprocess, "run", run):
+            cc, out = self.run_in_process(g, MAMA_SPEND_DEADLINE=str(time.time() + 30))
+        self.assertEqual(len(gits), 1, gits)  # one slow call: the rest are skipped
+        self.assertIn("not checked: git took too long", out)
+        self.assertIn("run close-check.py by hand", out)
+        self.assertIn("METRICS:", out)
+        self.assertIn("~2000k", out)  # the measure ran after the slow git
+        self.assertTrue(os.path.exists(os.path.join(g, ".spend-cache.json")))
 
     def test_no_spend_message_names_the_measure(self):
         g, t = self.goal_with_spend()
