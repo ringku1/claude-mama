@@ -1,6 +1,6 @@
 ---
 type: llm
-focus: outcome
+focus: {source: file, path: .claude/mama/delete-user/doc.html}
 weight: 1
 ---
 

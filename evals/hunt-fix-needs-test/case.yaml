@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: hunt-fix-needs-test
+expected_outcome: |
+  With an approved autonomous goal paused in its first bug-hunt round (parse-prices: S1 built
+  and committed parse_price in its worktree on feat/parse-prices; the round's /code-review
+  reported that "$1,200" parses as 1.2, which breaks criterion C1; nothing triaged or fixed yet),
+  /mama resume parse-prices triages the report, reproduces it with a test that fails, adds a
+  kind=fix step with plan-set.py, fixes the code test first, records `failing-first: <test>`
+  in the step's notes, and logs the round as one `E hunt 1: …` line naming /code-review.
+context:
+  scaffold_script: place-files.sh

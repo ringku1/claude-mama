@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: loop-runs-to-end
+expected_outcome: |
+  With an approved autonomous goal (add-text-helpers: S1 adds slugify in slug.py, S2 adds
+  word_count in wordcount.py, independent of each other, then S3 hunt and S4 release; budget,
+  research, expectations, db, playback and approval already in log.md; its worktree set up on
+  feat/text-helpers with no commits yet; a local origin to push to; PR ask-at-end),
+  /mama resume add-text-helpers runs the loop to the end on its own: both steps verified and
+  committed, both criteria evidenced, a bug-hunt round with /code-review logged, the branch
+  pushed, and only then the PR question, with no attribution in any commit.
+context:
+  scaffold_script: place-files.sh
