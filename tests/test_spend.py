@@ -253,6 +253,22 @@ class Spend(Base):
         self.assertEqual(self.run_py(go % "float('inf')"), ["1120"])
         self.assertNotIn("use", self.cache(a)[pc])
 
+    def test_grown_slim_candidate_cut_then_session_is_read_in_full(self):
+        a, b, write = self.old_goal()
+        sort = "_g = glob.glob; glob.glob = lambda p: sorted(_g(p))\n"  # a-cand is searched before sess-a
+        cand = [line(self.m(k), f"c{k}", 7) for k in range(2, 9)]  # pre-birth, never wrote to `old`
+        pc = self.transcript("a-cand", cand)
+        self.transcript("sess-a", [write, line(self.m(2), "m1", 100)])
+        go = sort + f"print(spend.measure({self.plan(a)!r}, deadline=%s))"
+        self.assertEqual(self.run_py(go % "float('inf')"), ["100"])
+        self.assertNotIn("use", self.cache(a)[pc])
+        # grown by one line: the search reads it from the slim entry's offset, then is cut before slimming
+        self.transcript("a-cand", [line(self.m(9), "c9", 7)], mode="a")
+        self.run_py(go % "0")
+        # a-cand later turns out to be a session: every one of its tokens counts, not only the new line's
+        self.activity([(self.m(3), "a-cand", a), (self.m(10), "sess-a", b)])
+        self.assertEqual(self.run_py(go % "float('inf')"), [str(100 + 7 * 7)])
+
     def test_slim_subagent_entry_is_read_again(self):
         a, b, write = self.old_goal()
         pa = self.transcript("sess-a", [write, line(self.m(2), "m1", 100)], sub=[line(self.m(3), "s1", 1000)])

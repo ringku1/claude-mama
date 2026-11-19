@@ -15,7 +15,8 @@ One pass per transcript, cached in <goal>/.spend-cache.json (per file: size, off
 per-second sums), so later turns read only the bytes added since. measure() stops reading at its
 deadline (default DEADLINE seconds), saves what it read and returns the partial sum; the next call
 resumes there. Transcripts searched for older sessions that turn out not to be one keep only a
-slim entry (no message ids or sums), so the cache stays small; ones that began after activity.log
+slim entry (no message ids or sums, marked "slim"), so the cache stays small, and any read that
+needs its sums reads it again from the start; ones that began after activity.log
 keep only their first time ({"first": t}, a dated entry), so they are not opened again.
 """
 import calendar, datetime, glob, json, os, re, sys, time
@@ -328,15 +329,20 @@ def measure(plan, transcript=None, deadline=None):
 
     def entry(path, full=False):
         """path's cache entry, read up to date unless the deadline cut a read already this call
-        (then as cached, or None). full: a slim or dated entry is read again from the start."""
+        (then as cached, or None). full: a slim or dated entry is read again from the start;
+        otherwise a slim entry is read on from its offset and stays slim (its sums are partial)."""
         nonlocal dirty
         old = files.get(path, {})
-        if old and "use" not in old and (full or "off" not in old):
-            old = {}
+        # slim: marked so, or (a cache from before the mark) read but without sums
+        slim = "off" in old and (old.get("slim") or "use" not in old)
+        if old and ("off" not in old or (full and slim)):
+            old, slim = {}, False
         if measure.partial:
             return old or None
         new = scan(path, old, lo, deadline)
         if new is not None and new is not old:
+            if slim:
+                new = dict({k: new.get(k) for k in SLIM}, slim=True, **({"cut": True} if new.get("cut") else {}))
             files[path], dirty = new, True
             measure.partial = bool(new.get("cut"))
         return new
@@ -402,7 +408,7 @@ def measure(plan, transcript=None, deadline=None):
             if os.path.splitext(p)[0] in dirs or os.path.dirname(os.path.dirname(p)) in dirs:
                 continue
             if not e.get("cut") and "use" in e:  # read whole, and not a session
-                files[p], dirty = {k: e.get(k) for k in SLIM}, True
+                files[p], dirty = dict({k: e.get(k) for k in SLIM}, slim=True), True
     if dirty:
         try:
             fileio.write_atomic(os.path.join(goal, CACHE), json.dumps(cache, separators=(",", ":")))
