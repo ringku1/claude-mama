@@ -75,8 +75,9 @@ class Spend(Base):
             for t, sid, goal in rows:
                 f.write(f"{t.isoformat(timespec='seconds')} {sid} {goal}\n")
 
-    def measure(self, goal):
-        code = f"import sys; sys.path.insert(0, {S!r}); import spend; print(spend.measure({self.plan(goal)!r}))"
+    def measure(self, goal, deadline=None):
+        arg = "" if deadline is None else f", deadline={deadline!r}"
+        code = f"import sys; sys.path.insert(0, {S!r}); import spend; print(spend.measure({self.plan(goal)!r}{arg}))"
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=self.env())
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout.strip()
@@ -151,6 +152,57 @@ class Spend(Base):
         self.cfg = os.path.join(self.tmp, "cfg")
         self.transcript("sess-a", [line(self.m(2), "x", 100)])
         self.assertEqual(self.measure(g), "100")
+
+    def cache(self, goal):
+        return json.load(open(os.path.join(goal, ".spend-cache.json"), encoding="utf-8"))["files"]
+
+    def test_cache_saved_before_deadline(self):
+        g = self.goal("one")
+        self.activity([(self.m(1), "sess-a", g)])
+        path = self.transcript("sess-a", [line(self.m(k), f"x{k}", 1 << k) for k in (2, 3, 4)],
+                               sub=[line(self.m(5), "s1", 1000)])
+        # past its deadline a call still makes progress, saves it, and returns what it has so far
+        first = self.measure(g, deadline=0)
+        off = self.cache(g)[path]["off"]
+        self.assertTrue(0 < off < os.path.getsize(path), off)
+        self.assertNotEqual(first, str(4 + 8 + 16 + 1000))
+        # each later call resumes from the saved offsets instead of starting over
+        for _ in range(10):
+            last = self.measure(g, deadline=0)
+            self.assertGreaterEqual(self.cache(g)[path]["off"], off)
+            off = self.cache(g)[path]["off"]
+        self.assertEqual(last, str(4 + 8 + 16 + 1000))
+        self.assertEqual(self.measure(g), str(4 + 8 + 16 + 1000))
+
+    def old_goal(self):
+        """Goal `old` started before activity.log; sess-a wrote to it (m1) before the record began (m10)."""
+        a, b = self.goal("old", start=self.m(-30)), self.goal("new", start=self.m(-30))
+        write = json.dumps({"type": "assistant", "timestamp": utc(self.m(1)), "message": {"id": "w", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": f"python3 x/log.py {a}/log.md E go"}}]}}) + "\n"
+        self.activity([(self.m(10), "sess-a", b)])
+        return a, b, write
+
+    def test_unmatched_candidates_pruned(self):
+        a, b, write = self.old_goal()
+        pa = self.transcript("sess-a", [write, line(self.m(2), "m1", 100), line(self.m(12), "m2", 5000)])
+        pc = self.transcript("sess-c", [line(self.m(k), f"c{k}", 7) for k in range(2, 9)])  # never wrote to `old`
+        self.assertEqual(self.measure(a), "100")
+        files = self.cache(a)
+        self.assertIn("use", files[pa])
+        self.assertNotIn("use", files[pc])
+        self.assertNotIn("ids", files[pc])
+        self.assertEqual(files[pc]["off"], os.path.getsize(pc))
+        self.assertEqual(self.measure(a), "100")  # the slim entry still counts as read
+        # an unmatched transcript that later becomes a recorded session is read again in full
+        self.activity([(self.m(3), "sess-c", a), (self.m(10), "sess-a", b)])
+        self.assertEqual(self.measure(a), str(100 + 7 * 6))
+
+    def test_session_owner_first_line_still_found(self):
+        a, b, write = self.old_goal()
+        owner = json.dumps({"type": "session-owner", "sessionId": "sess-a"}) + "\n"
+        self.transcript("sess-a", [owner, write, line(self.m(2), "m1", 100), line(self.m(12), "m2", 5000)])
+        self.assertEqual(self.measure(a), "100")
+        self.assertEqual(self.measure(b), "5000")
 
     def test_cli_writes_the_budget(self):
         g = self.goal("one")

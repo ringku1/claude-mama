@@ -12,9 +12,12 @@ Prints `spend=<n>k pct=<p>` (pct of the size ceiling S 300k / M 1M / L <n>k|M); 
 `~<n>k` into the plan header's budget field.
 
 One pass per transcript, cached in <goal>/.spend-cache.json (per file: size, offset read,
-per-second sums), so later turns read only the bytes added since.
+per-second sums), so later turns read only the bytes added since. measure() stops reading at its
+deadline (default DEADLINE seconds), saves what it read and returns the partial sum; the next call
+resumes there. Transcripts searched for older sessions that turn out not to be one keep only a
+slim entry (no message ids or sums), so the cache stays small.
 """
-import calendar, datetime, glob, json, os, re, sys
+import calendar, datetime, glob, json, os, re, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import activity  # noqa: E402
@@ -25,6 +28,9 @@ CEIL = {"S": 300_000, "M": 1_000_000}
 CACHE = ".spend-cache.json"
 CACHE_V = 1
 INF = float("inf")
+DEADLINE = 6  # seconds: the Stop hook is killed at 10, and must save what it read before then
+FIRST_TS_LINES = 20  # lines read to date a transcript (it may open with lines that carry no time)
+SLIM = ("size", "off", "first", "last", "writes")  # what an unmatched candidate keeps
 
 # paths may use / or \ (Windows tools write C:\Users\…\.claude\mama\<slug>\plan.md)
 SLUG_RE = re.compile(r"\.claude[\\/]+mama[\\/]+([a-z0-9][a-z0-9-]*)[\\/]+(?:plan|log|overview)\.md")
@@ -156,10 +162,24 @@ def _line_slugs(line):
     return list(dict.fromkeys(out))
 
 
-def scan(path, entry, since):
+def _first_ts(f):
+    """The first timestamp in an open transcript's first FIRST_TS_LINES lines, or None."""
+    for _ in range(FIRST_TS_LINES):
+        line = f.readline()
+        if not line:
+            break
+        t = _ts(line)
+        if t is not None:
+            return t
+    return None
+
+
+def scan(path, entry, since, deadline=INF):
     """One transcript's cache entry brought up to date, reading only the bytes past entry["off"].
     Entry: {size, off, first/last (times), ids (message ids counted), use {sec: tokens},
-    writes [[sec, slug]]}. Per-second sums before `since` are dropped (the goal didn't exist)."""
+    writes [[sec, slug]]}. Per-second sums before `since` are dropped (the goal didn't exist).
+    Past deadline (time.time()) it stops after at least one line; the entry is then marked
+    "cut" and records size = off, so the next scan resumes from there."""
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -170,7 +190,7 @@ def scan(path, entry, since):
         return entry
     off, first, last = entry.get("off", 0), entry.get("first"), entry.get("last")
     use, writes, ids = dict(entry.get("use", {})), list(entry.get("writes", [])), list(entry.get("ids", []))
-    seen = set(ids)
+    seen, cut = set(ids), False
     try:
         f = open(path, "rb")
     except OSError:
@@ -181,6 +201,8 @@ def scan(path, entry, since):
             if not line.endswith(b"\n"):
                 break  # still being written: read it next time
             off += len(line)
+            if time.time() >= deadline and off < size:
+                cut = True
             if first is None:
                 first = _ts(line)
             # only assistant lines carry usage and tool calls; the rest (prompts, tool results,
@@ -202,6 +224,9 @@ def scan(path, entry, since):
                 if s:
                     ts = _ts(line)
                     writes.append([last if ts is None else ts, s[-1]])
+            if cut:
+                return {"size": off, "off": off, "first": first, "last": last, "ids": ids, "use": use,
+                        "writes": writes, "cut": True}
     return {"size": size, "off": off, "first": first, "last": last, "ids": ids, "use": use, "writes": writes}
 
 
@@ -278,10 +303,15 @@ def _load(goal, lo):
     return {"v": CACHE_V, "lo": lo, "files": {}}
 
 
-def measure(plan, transcript=None):
+def measure(plan, transcript=None, deadline=None):
     """Tokens this goal spent (main threads + their subagents) over every session that recorded
     writes to it, each only in its own time on the goal; None if no session worked on it.
-    transcript (optional) only hints where the session transcripts live."""
+    transcript (optional) only hints where the session transcripts live. deadline (time.time()
+    epoch; default DEADLINE seconds from now, INF for none): past it, reading stops, the cache
+    keeps what was read, and the sum so far is returned (measure.partial is then True)."""
+    if deadline is None:
+        deadline = time.time() + DEADLINE
+    measure.partial = False
     goal = activity.canon(os.path.dirname(os.path.abspath(plan)))
     slug = os.path.basename(goal)
     lo_dt, hi_dt, _ = window(plan)
@@ -291,12 +321,19 @@ def measure(plan, transcript=None):
     cache = _load(goal, lo)
     files, dirty = cache["files"], False
 
-    def entry(path):
+    def entry(path, full=False):
+        """path's cache entry, read up to date unless the deadline cut a read already this call
+        (then as cached, or None). full: a slim entry is read again from the start."""
         nonlocal dirty
         old = files.get(path, {})
-        new = scan(path, old, lo)
+        if full and old and "use" not in old:
+            old = {}
+        if measure.partial:
+            return old or None
+        new = scan(path, old, lo, deadline)
         if new is not None and new is not old:
             files[path], dirty = new, True
+            measure.partial = bool(new.get("cut"))
         return new
 
     sessions = {}
@@ -306,13 +343,16 @@ def measure(plan, transcript=None):
             sessions[p] = sid
     if lo < birth:  # the goal predates the record: find its earlier sessions in the transcripts
         for p in glob.glob(os.path.join(glob.escape(projects_dir()), "*", "*.jsonl")):
+            if measure.partial:
+                break
             try:
                 if p in sessions or os.path.getmtime(p) < lo:
                     continue
                 if p not in files:
                     with open(p, "rb") as f:
-                        if (_ts(f.readline()) or INF) >= birth:
-                            continue  # began after the record did: its writes are recorded
+                        t = _first_ts(f)
+                    if t is not None and t >= birth:
+                        continue  # began after the record did: its writes are recorded
             except OSError:
                 continue
             e = entry(p)
@@ -321,7 +361,7 @@ def measure(plan, transcript=None):
 
     total, counted = 0, False
     for p, sid in sessions.items():
-        e = entry(p)
+        e = entry(p, full=True)
         wins = windows_of(goal, sid, e["writes"], lo, hi, birth) if e else []
         if not wins:
             continue
@@ -336,6 +376,11 @@ def measure(plan, transcript=None):
             se = entry(sub)
             if se and se["first"] is not None and inside(se["first"], wins):
                 total += sum(c for k, c in se["use"].items() if int(k) <= hi)
+    dirs = {os.path.splitext(p)[0] for p in sessions}
+    keep = set(sessions) | {f for f in files if os.path.dirname(os.path.dirname(f)) in dirs}  # + subagents
+    for p, e in files.items():
+        if p not in keep and not e.get("cut") and "use" in e:  # read whole, and not a session
+            files[p], dirty = {k: e.get(k) for k in SLIM}, True
     if dirty:
         try:
             fileio.write_atomic(os.path.join(goal, CACHE), json.dumps(cache, separators=(",", ":")))
@@ -350,7 +395,7 @@ def main():
     args = [a for a in sys.argv[1:] if a != "--write"]
     transcript, plan = (args[0], args[1]) if len(args) > 1 else (None, args[0])
     _, _, size = window(plan)
-    total = measure(plan, transcript)
+    total = measure(plan, transcript, deadline=INF)  # run by hand: read it all
     if total is None:
         sys.exit("no session recorded work on this goal")
     k = round(total / 1000)
