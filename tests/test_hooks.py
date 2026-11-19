@@ -18,10 +18,11 @@ class HookBase(Base):
     def transcript(self, sid):
         return os.path.join(self.home, ".claude", "projects", "p", f"{sid}.jsonl")
 
-    def hook(self, mode, sid="sess-a", cwd=None, env_sid=None, path=None, raw=None, hook=HOOK):
+    def hook(self, mode, sid="sess-a", cwd=None, env_sid=None, path=None, raw=None, hook=HOOK, **extra):
         inp = raw if raw is not None else json.dumps(
             {"cwd": cwd or self.repo, "session_id": sid, "trigger": "auto", "transcript_path": self.transcript(sid)})
         env = self.env(env_sid)
+        env.update(extra)
         if path:
             env["PATH"] = path + os.pathsep + env.get("PATH", "")
         r = subprocess.run([sys.executable, hook, mode], input=inp, capture_output=True, text=True, env=env)
@@ -60,6 +61,28 @@ class HookBase(Base):
             return self.read(os.path.join(self.home, ".claude", "mama", "activity.log"))
         except OSError:
             return ""
+
+    def skill_with_close_check(self, main_body):
+        """A copy of the hook and scripts whose close-check.py, run as a script, does main_body
+        (imported as a module it is the real one). Returns the copied hook's path."""
+        root = os.path.join(self.tmp, "skill")
+        shutil.copytree(os.path.join(SKILL, "hooks"), os.path.join(root, "hooks"))
+        sc = os.path.join(root, "scripts")
+        shutil.copytree(S, sc, ignore=shutil.ignore_patterns("__pycache__"))
+        os.replace(os.path.join(sc, "close-check.py"), os.path.join(sc, "close_check_real.py"))
+        with open(os.path.join(sc, "close-check.py"), "w", encoding="utf-8") as f:
+            f.write("import os, sys, time\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n"
+                    "from close_check_real import *  # noqa\n"
+                    f"if __name__ == '__main__':\n    {main_body}\n")
+        return os.path.join(root, "hooks", "mama-hook.py")
+
+    def done_goal_with_another_problem(self):
+        g = self.running_goal()
+        self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")  # not learned: a problem
+        s = self.read(self.plan(g)).replace("status: running", "status: done")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        os.utime(os.path.join(g, "overview.md"))
+        return g
 
 
 class WhoseGoal(HookBase):
@@ -170,28 +193,6 @@ class Stop(HookBase):
             self.hook(mode)
         self.assertLess((time.time() - t) / 3, 3)
 
-    def skill_with_close_check(self, main_body):
-        """A copy of the hook and scripts whose close-check.py, run as a script, does main_body
-        (imported as a module it is the real one). Returns the copied hook's path."""
-        root = os.path.join(self.tmp, "skill")
-        shutil.copytree(os.path.join(SKILL, "hooks"), os.path.join(root, "hooks"))
-        sc = os.path.join(root, "scripts")
-        shutil.copytree(S, sc, ignore=shutil.ignore_patterns("__pycache__"))
-        os.replace(os.path.join(sc, "close-check.py"), os.path.join(sc, "close_check_real.py"))
-        with open(os.path.join(sc, "close-check.py"), "w", encoding="utf-8") as f:
-            f.write("import os, sys, time\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n"
-                    "from close_check_real import *  # noqa\n"
-                    f"if __name__ == '__main__':\n    {main_body}\n")
-        return os.path.join(root, "hooks", "mama-hook.py")
-
-    def done_goal_with_another_problem(self):
-        g = self.running_goal()
-        self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")  # not learned: a problem
-        s = self.read(self.plan(g)).replace("status: running", "status: done")
-        open(self.plan(g), "w", encoding="utf-8").write(s)
-        os.utime(os.path.join(g, "overview.md"))
-        return g
-
     def test_close_check_timeout_still_blocks(self):
         hook = self.skill_with_close_check("time.sleep(30)")
         g = self.done_goal_with_another_problem()
@@ -223,6 +224,48 @@ class Stop(HookBase):
         self.assertFalse(os.path.exists(calls), "git ran in stop/precompact")
         self.hook("sessionstart", path=d)
         self.assertTrue(os.path.exists(calls))  # sessionstart still finds the store through git
+
+
+class OnceOnly(HookBase):
+    """The one-liner's skills/mama also loads as plugin mama@skills-dir: its hooks.json copy (MAMA_VIA=plugin)
+    steps aside when settings.json already runs mama-hook.py."""
+
+    def settings(self, text, base=None):
+        d = base or os.path.join(self.home, ".claude")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "settings.json"), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    ONE_LINER = json.dumps({"hooks": {"PreCompact": [{"hooks": [
+        {"type": "command", "command": "/usr/bin/python3", "args": ["/h/.claude/skills/mama/hooks/mama-hook.py", "precompact"]}]}]}})
+
+    def test_plugin_copy_steps_aside_for_settings_hooks(self):
+        g = self.running_goal()
+        log = os.path.join(g, "log.md")
+        self.settings(self.ONE_LINER)
+        before = self.read(log)
+        self.assertEqual(self.hook("precompact", MAMA_VIA="plugin"), "")
+        self.assertEqual(self.read(log), before)  # no work: no `E compaction` line
+        self.assertEqual(self.hook("stop", raw="[1, 2]", MAMA_VIA="plugin"), "")  # before reading stdin
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
+        self.assertIn("keep: the slug 'demo'", self.hook("precompact"))  # the settings.json hook itself runs
+
+    def test_plugin_copy_runs_without_settings_hooks(self):
+        self.running_goal()
+        for text in (None, '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}}',
+                     '{"hooks": ', '[1]', '{"hooks": {"Stop": 3}}'):
+            if text is not None:
+                self.settings(text)
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA="plugin"), text)
+
+    def test_reads_claude_config_dir_settings(self):
+        self.running_goal()
+        cfg = os.path.join(self.tmp, "cfg")
+        self.settings(self.ONE_LINER, base=cfg)
+        self.assertEqual(self.hook("precompact", MAMA_VIA="plugin", CLAUDE_CONFIG_DIR=cfg), "")
+        self.settings(self.ONE_LINER)  # ~/.claude is not the config folder then
+        self.assertIn("keep: the slug 'demo'",
+                      self.hook("precompact", MAMA_VIA="plugin", CLAUDE_CONFIG_DIR=os.path.join(self.tmp, "none")))
 
 
 class Lean(HookBase):
@@ -340,6 +383,42 @@ class Lean(HookBase):
         self.assertFalse(os.path.exists(cache))
         r = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True, text=True, env=self.env())
         self.assertFalse(os.path.exists(cache), r.stdout)
+
+    def test_closed_goal_cut_by_the_deadline_keeps_its_cache(self):
+        # measure() stops at its deadline (measure.partial); deleting the cache then would lose the rest of the
+        # spend, so the next Stop finishes reading it and only then deletes the cache
+        g = self.running_goal()
+        cache = os.path.join(g, ".spend-cache.json")
+        self.spend(g, 1000)
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        self.hook("stop")
+        s = self.read(self.plan(g)).replace("status: running", "status: aborted")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        for _ in range(6):
+            self.spend(g, 1000)
+        hook = self.skill_with_close_check("sys.exit(0)")
+        sp = os.path.join(os.path.dirname(os.path.dirname(hook)), "scripts", "spend.py")
+        src = self.read(sp)
+        self.assertIn("DEADLINE = 6", src)
+        open(sp, "w", encoding="utf-8").write(src.replace("DEADLINE = 6", "DEADLINE = -1", 1))  # always past
+        self.hook("stop", hook=hook)
+        self.assertTrue(os.path.exists(cache))  # cut short: kept for the next Stop
+        for _ in range(10):
+            if not os.path.exists(cache):
+                break
+            self.hook("stop", hook=hook)
+        self.assertFalse(os.path.exists(cache))
+        self.assertRegex(self.read(self.plan(g)), r"budget: ~7k /")
+
+    def test_close_check_from_the_hook_gets_a_spend_deadline(self):
+        hook = self.skill_with_close_check("print('deadline', os.environ.get('MAMA_SPEND_DEADLINE')); sys.exit(1)")
+        self.done_goal_with_another_problem()
+        t = time.time()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        m = re.search(r"deadline ([\d.]+)", reason)
+        self.assertTrue(m, reason)
+        self.assertLess(float(m.group(1)), t + 5)  # inside the hook's close-check budget
+        self.assertGreater(float(m.group(1)), t)
 
 
 if __name__ == "__main__":

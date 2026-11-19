@@ -7,6 +7,9 @@ line (time, mode, error) appended to ~/.claude/mama/hook-errors.log.
 This session's goals are the ones it recorded writing to (activity.log, any store). No record,
 no goal — the hooks never read transcripts to guess ownership.
 
+- MAMA_VIA=plugin (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
+                mama@skills-dir, so each hook is registered twice; when settings.json already runs
+                mama-hook.py, this plugin copy exits at once and leaves the work to that one.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - every mode:   at most once a day starts scripts/self-update.py in the background (git installs;
@@ -52,6 +55,18 @@ try:
     IMPORT_ERROR = None
 except Exception as e:  # reported by __main__, so a broken install still exits 0
     IMPORT_ERROR = e
+
+
+def registered_in_settings():
+    """Whether <claude folder>/settings.json runs mama-hook.py itself (the one-line install). An
+    unreadable or invalid file counts as no: the plugin copy then runs."""
+    base = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
+    try:
+        with open(os.path.join(base, "settings.json"), encoding="utf-8") as f:
+            hooks = json.load(f).get("hooks")
+        return any("mama-hook.py" in json.dumps(e) for v in hooks.values() if isinstance(v, list) for e in v)
+    except Exception:
+        return False
 
 
 def main_checkout(cwd):
@@ -183,9 +198,11 @@ def close_problems(plan):
     left = CLOSE_CHECK_BUDGET - (time.monotonic() - STARTED)
     if left < 0.5:
         return unfinished
+    # its spend measure must fit too: stop reading transcripts ~2s before the budget ends
+    env = dict(os.environ, MAMA_SPEND_DEADLINE=str(time.time() + max(0.0, left - 2)))
     try:
         r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), goal],
-                           capture_output=True, text=True, timeout=left)
+                           capture_output=True, text=True, timeout=left, env=env)
     except Exception:
         return unfinished
     if r.returncode == 0:
@@ -237,7 +254,7 @@ def measure_budget(plan, transcript, closed=False):
     if closed and not os.path.exists(cache):
         return None, None
     total = sp.measure(plan, transcript)
-    if closed:
+    if closed and not getattr(sp.measure, "partial", False):  # cut by the deadline: the next Stop finishes it
         try:
             os.remove(cache)
         except OSError:
@@ -452,6 +469,8 @@ def report(mode, err):
 
 
 if __name__ == "__main__":
+    if os.environ.get("MAMA_VIA") == "plugin" and registered_in_settings():
+        sys.exit(0)  # the settings.json hook does this work; running both would do it twice
     _mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
         main(_mode)

@@ -224,9 +224,19 @@ def hunt_summary(log):
     return f"hunt rounds {len(rounds)} (real bugs {real})"
 
 
+def spend_deadline():
+    """When to stop reading transcripts: MAMA_SPEND_DEADLINE (epoch seconds), which the Stop hook
+    sets to fit its close-check budget; none (read it all) when run by hand or by plan-set."""
+    try:
+        return float(os.environ["MAMA_SPEND_DEADLINE"])
+    except (KeyError, ValueError):
+        return float("inf")
+
+
 def measured_spend(goal, head):
-    """The goal's measured token spend. A closed goal whose cache the Stop hook already deleted
-    reads the final number from the plan header instead of rebuilding the cache."""
+    """The goal's measured token spend (None if unknown or cut short by spend_deadline). A closed goal
+    whose cache the Stop hook already deleted reads the final number from the plan header instead of
+    rebuilding the cache."""
     if head.get("status") in ("done", "aborted") and not os.path.exists(os.path.join(goal, ".spend-cache.json")):
         m = re.match(r"~(\d+)k", head.get("budget", ""))
         return int(m.group(1)) * 1000 if m else None
@@ -235,7 +245,8 @@ def measured_spend(goal, head):
         spec = importlib.util.spec_from_file_location("mama_spend", os.path.join(os.path.dirname(os.path.abspath(__file__)), "spend.py"))
         sp = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(sp)
-        return sp.measure(os.path.join(goal, "plan.md"))
+        total = sp.measure(os.path.join(goal, "plan.md"), deadline=spend_deadline())
+        return None if sp.measure.partial else total  # cut short: not the spend, so not compared
     except Exception:
         return None
 

@@ -12,8 +12,9 @@ Claude's folder is $CLAUDE_CONFIG_DIR when set, else ~/.claude (%USERPROFILE%\\.
    in exec form — this Python's absolute path plus the hook script's — so no shell, `~` or
    `python3`-vs-`python` differences matter. Other settings are kept; the first time, the original is saved
    as settings.json.bak (never overwritten later). An unreadable settings.json is left untouched.
-   It also sets enabledPlugins "mama@skills-dir" to false: Claude Code would otherwise load the linked folder as
-   a plugin too and run each hook twice. --remove takes that key out again.
+   Claude Code also loads the linked folder as plugin mama@skills-dir, so its hooks/hooks.json registers each
+   hook a second time; that copy sees these settings.json hooks and steps aside (MAMA_VIA=plugin in mama-hook.py).
+   An earlier version turned mama@skills-dir off, which hid /mama; any run takes that "false" out again.
    Safe to re-run.
 
 mama can instead be installed as a Claude Code plugin (claude plugin install mama@claude-mama), which brings
@@ -38,8 +39,8 @@ CLAUDE = os.path.abspath(  # one separator style (mklink reads "/x" as a switch)
 DEST = os.path.join(CLAUDE, "skills", "mama")
 SETTINGS = os.path.join(CLAUDE, "settings.json")
 EVENTS = {"PreCompact": ("precompact", None), "SessionStart": ("sessionstart", "compact"), "Stop": ("stop", None)}
-# Claude Code also loads <claude folder>/skills/mama as this plugin (the folder has .claude-plugin/), which would run
-# hooks/hooks.json beside the settings.json hooks, so every hook twice. The one-liner turns that copy off.
+# Claude Code also loads <claude folder>/skills/mama as this plugin (the folder has .claude-plugin/). It must stay on
+# (off hides /mama); its hooks step aside for ours. Earlier versions wrote it as false, which every run removes.
 SKILLS_DIR_PLUGIN = "mama@skills-dir"
 
 
@@ -75,8 +76,8 @@ def is_mama(entry):
     return "mama-hook.py" in json.dumps(entry)
 
 
-def update_hooks(remove, skills_dir_off=None):
-    """Add (or with remove, take out) mama's hooks; skills_dir_off (default: not remove) disables mama@skills-dir."""
+def update_hooks(remove):
+    """Add (or with remove, take out) mama's hooks, and drop an old "mama@skills-dir": false."""
     settings = {}
     if os.path.exists(SETTINGS):
         try:
@@ -103,13 +104,11 @@ def update_hooks(remove, skills_dir_off=None):
             hooks.pop(event, None)
     if not hooks:
         settings.pop("hooks")
-    plugins = settings.setdefault("enabledPlugins", {})
-    if (not remove) if skills_dir_off is None else skills_dir_off:
-        plugins[SKILLS_DIR_PLUGIN] = False
-    else:
-        plugins.pop(SKILLS_DIR_PLUGIN, None)
-    if not plugins:
-        settings.pop("enabledPlugins")
+    plugins = settings.get("enabledPlugins")
+    if plugins and plugins.get(SKILLS_DIR_PLUGIN) is False:  # written by an earlier version; a user's true stays
+        del plugins[SKILLS_DIR_PLUGIN]
+        if not plugins:
+            settings.pop("enabledPlugins")
     os.makedirs(CLAUDE, exist_ok=True)
     tmp = SETTINGS + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -129,7 +128,7 @@ def main():
     if plugin:
         if ours:  # a one-liner install from before the plugin would run every hook twice
             try:
-                update_hooks(remove=True, skills_dir_off=True)  # skills/mama may stay until deleted
+                update_hooks(remove=True)  # skills/mama may stay until deleted
             except OSError as e:
                 sys.exit(f"mama: {e}")
             sys.stdout.flush()

@@ -61,22 +61,45 @@ class Manifests(unittest.TestCase):
             [h] = entry["hooks"]
             self.assertEqual(h["type"], "command")
             self.assertNotIn("args", h)  # shell form: Git Bash on Windows, so scripts/py can find Python
-            self.assertEqual(h["command"], 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/py" '
+            self.assertEqual(h["shell"], "bash")
+            self.assertEqual(h["command"], 'MAMA_VIA=plugin bash "${CLAUDE_PLUGIN_ROOT}/scripts/py" '
                                            f'"${{CLAUDE_PLUGIN_ROOT}}/hooks/mama-hook.py" {mode}')
             for rel in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"]+)", h["command"]):
                 self.assertTrue(os.path.isfile(os.path.join(SKILL, rel)), rel)
+
+    def run_plugin_hook(self, tmp, event, stdin):
+        cmd = load(HOOKS)["hooks"][event][0]["hooks"][0]["command"]
+        cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", SKILL.replace(os.sep, "/"))
+        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "MAMA_VIA")}
+        env.update(HOME=tmp, USERPROFILE=tmp, MAMA_AUTO_UPDATE="0")  # never the real ~/.claude
+        r = subprocess.run([BASH, "-c", cmd], input=stdin, capture_output=True, text=True, timeout=30, env=env)
+        self.assertEqual(r.returncode, 0, f"{event}: {r.stderr}")
+        self.assertEqual(r.stderr, "", event)
+        return r
 
     @unittest.skipUnless(BASH, "needs bash")
     def test_hook_commands_run(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, True)
-        for event, (mode, _) in EVENTS.items():
-            cmd = load(HOOKS)["hooks"][event][0]["hooks"][0]["command"]
-            cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", SKILL.replace(os.sep, "/"))
-            r = subprocess.run([BASH, "-c", cmd], input=json.dumps({"session_id": "t", "cwd": tmp}),
-                               capture_output=True, text=True, timeout=30)
-            self.assertEqual(r.returncode, 0, f"{mode}: {r.stderr}")
-            self.assertEqual(r.stderr, "", mode)
+        for event in EVENTS:
+            self.run_plugin_hook(tmp, event, json.dumps({"session_id": "t", "cwd": tmp}))
+
+    @unittest.skipUnless(BASH, "needs bash")
+    def test_plugin_copy_steps_aside_for_the_one_liner_hooks(self):
+        # the one-liner's skills/mama is also loaded as plugin mama@skills-dir: its hooks.json copy must not
+        # run each hook a second time. Bad stdin makes a hook that runs log an error; one that steps aside can't.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        errors = os.path.join(tmp, ".claude", "mama", "hook-errors.log")
+        os.makedirs(os.path.join(tmp, ".claude"))
+        with open(os.path.join(tmp, ".claude", "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/bin/python3",
+                                                      "args": ["/x/skills/mama/hooks/mama-hook.py", "stop"]}]}]}}, f)
+        self.run_plugin_hook(tmp, "Stop", "[1, 2]")
+        self.assertFalse(os.path.exists(errors))
+        os.remove(os.path.join(tmp, ".claude", "settings.json"))  # a marketplace install: the plugin's hooks run
+        self.run_plugin_hook(tmp, "Stop", "[1, 2]")
+        self.assertTrue(os.path.exists(errors))
 
     @unittest.skipUnless(CLAUDE, "needs the claude CLI")
     def test_claude_plugin_validate(self):
@@ -147,7 +170,7 @@ class InstallWithPlugin(unittest.TestCase):
         r = self.install()
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("plugin is enabled", r.stderr)
-        self.assertEqual(load(self.path)["enabledPlugins"], {"mama@skills-dir": False})
+        self.assertEqual(load(self.path)["enabledPlugins"], {"mama@skills-dir": True})  # a user's own value stays
         self.assertEqual(set(load(self.path)["hooks"]), set(EVENTS))
         self.assertTrue(self.linked())
 

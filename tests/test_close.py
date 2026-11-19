@@ -4,6 +4,7 @@ Run: python3 tests/test_close.py
 """
 import datetime
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -300,6 +301,53 @@ class Tables(unittest.TestCase):
         self.assertEqual(estimate.steps_of(plan), [("S1", "—", "5m", "done"), ("S2", "S1", "10m", "")])
         self.assertEqual(estimate.table(plan, "Parked"), ([], []))
         self.assertFalse(hasattr(load_cc(), "table"))  # close-check reuses estimate's parser
+
+
+
+class SpendDeadline(Base):
+    """close-check.py measures spend inside the Stop hook's close-check budget: the hook passes
+    MAMA_SPEND_DEADLINE (epoch seconds); run by hand or by plan-set it reads every transcript."""
+
+    def goal_with_spend(self):
+        g = self.new_goal()
+        t = os.path.join(self.home, ".claude", "projects", "p", "sess-a.jsonl")
+        os.makedirs(os.path.dirname(t), exist_ok=True)
+        with open(t, "w", encoding="utf-8") as f:
+            for n in range(20):
+                f.write(json.dumps({"type": "assistant", "timestamp": utc(datetime.datetime.now()), "message": {
+                    "id": f"m{n}", "usage": {"input_tokens": 100000, "output_tokens": 0}, "content": []}}) + "\n")
+        return g, t
+
+    def cached(self, g, t):
+        with open(os.path.join(g, ".spend-cache.json"), encoding="utf-8") as f:
+            return json.load(f)["files"][t]
+
+    def close_check(self, g, **extra):
+        env = self.env()
+        env.pop("MAMA_SPEND_DEADLINE", None)
+        env.update(extra)
+        r = subprocess.run([sys.executable, os.path.join(S, "close-check.py"), g], capture_output=True, text=True, env=env)
+        self.assertNotIn("Traceback", r.stderr)
+        return r.stdout
+
+    def test_hook_deadline_cuts_the_measure(self):
+        g, t = self.goal_with_spend()
+        with open(os.path.join(self.store, "lessons.md"), "w", encoding="utf-8") as f:
+            f.write(f"- {datetime.date.today()} demo build | tokens est S / ~2000k\n")  # 20 x 100k: right
+        out = self.close_check(g, MAMA_SPEND_DEADLINE="0")
+        self.assertNotIn("but measured is", out)  # a sum cut short is not compared to the claim
+        e = self.cached(g, t)
+        self.assertTrue(e.get("cut"), e)
+        self.assertLess(e["off"], os.path.getsize(t))
+
+    def test_by_hand_reads_it_all(self):
+        g, t = self.goal_with_spend()
+        self.close_check(g)
+        e = self.cached(g, t)
+        self.assertFalse(e.get("cut"), e)
+        self.assertEqual(e["off"], os.path.getsize(t))
+        self.close_check(g, MAMA_SPEND_DEADLINE="soon")  # unreadable: as by hand
+        self.assertEqual(self.cached(g, t)["off"], os.path.getsize(t))
 
 
 if __name__ == "__main__":
