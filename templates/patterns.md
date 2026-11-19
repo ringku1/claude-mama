@@ -28,6 +28,7 @@ Rules for the file:
 
 - <e.g. Typical goal: 3-6 steps, mostly API + web — 6 goals>
 - <e.g. My estimates run ~30% low — 4 goals>
+- <e.g. standard API + web goal: 5 steps, ~1h, ~420k tokens (~85k per step) — 3 goals>
 
 ## Watching (fewer than 3 observations)
 

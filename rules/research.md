@@ -14,13 +14,28 @@ Read `rules/agents.md`, then dispatch the **research lenses** as read-only agent
 | **Rules & proof** | Applicable repo rules, skills and enforcement tests; how this area is tested and what tests need (DB env, fixtures). |
 | **Design** (UI work) | The design screen(s): regions, states, copy; what the input asks for that the design lacks, and the reverse. |
 
+## Pick the tier
+
+Research picks it; set it before the questions (`plan-set.py <plan> --header tier=<t>`, or `new-goal.py … --tier <t>` when the input already settles it):
+- **full** — a database or migration change, security or permissions, or 3+ modules.
+- **quick** — under ~30 min, one area (SKILL.md → Tiers).
+- **standard** — everything else.
+
+| Tier | Research | Questions | Hunt cap |
+| ---- | -------- | --------- | -------- |
+| quick | no lenses | base, PR, one-line playback | 1 (`low`) |
+| standard | ≥1 lens | one batch, `E db` line, playback | 1 |
+| full | the lenses the area needs | as many batches as needed, db design, playback | 2 |
+
+Standard and full share the approval guards. A finding mid-run that meets a higher tier's test (a migration appears) → raise the tier, log a `D`, and do what it adds.
+
 ## Ask what the work is for first
 
 A review, audit or "check X" goal with no stated outcome (report only or fixes too; which severities; which area) gets that one question before any lens runs. Size the research to the answer.
 
 ## Size and record
 
-Economy matters as much as coverage: a small goal gets one or two lenses (none in quick mode), a large one all, a big area more agents split by module. Merge the returns yourself: findings → `F` lines (tag what you checked yourself `verified`), each case → an `F … case:` line, each needed database change → an `F … db:` line, then one `E research: <n> findings, <m> cases, <k> open` line. Spot-check what the plan rests on; a recommendation that depends on code is checked feasible (file:line or a quick probe) or marked "unproven". Open cases feed the questions; the plan covers every case. Plan a research step only for what stays open; never re-prove a finding.
+Economy matters as much as coverage: a standard goal gets one or two lenses (none on quick), a full one all it needs, a big area more agents split by module. Merge the returns yourself: findings → `F` lines (tag what you checked yourself `verified`), each case → an `F … case:` line, each needed database change → an `F … db:` line, then one `E research: <n> findings, <m> cases, <k> open` line. Spot-check what the plan rests on; a recommendation that depends on code is checked feasible (file:line or a quick probe) or marked "unproven". Open cases feed the questions; the plan covers every case. Plan a research step only for what stays open; never re-prove a finding.
 
 ## Lens brief (≤ ~200 words)
 

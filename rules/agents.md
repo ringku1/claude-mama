@@ -39,7 +39,7 @@ Return ≤10 lines: done? · files changed · verify result (pass/fail + key lin
 
 Research-lens brief: `rules/research.md`. Test-agent brief: same frame, but "Check, don't fix: run <verify>, read the diff for <files>, judge whether the test really exercises <criterion>. Return pass/fail + evidence."
 
-Read-only agents (research lenses, checkers, reviewers) spawn with `subagent_type: Explore`. Never pass the conversation, the whole plan or the log. Agents never write `plan.md`, `log.md` or `overview.md`; you record what they report.
+Read-only agents (research lenses, checkers, reviewers) spawn with `subagent_type: Explore` and a short brief (≤ ~150 words: question, scope, return shape). A spawn costs 14–36k tokens before any work, so anything a handful of tool calls can do stays in the main thread. Never pass the conversation, the whole plan or the log. Agents never write `plan.md`, `log.md` or `overview.md`; you record what they report.
 
 ## Token hygiene (for you and agents)
 

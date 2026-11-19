@@ -16,7 +16,7 @@ Keep finished work; never silently contradict an earlier decision.
 
 ## Fix goal (`/mama fix`)
 
-Input: the source goal's report, `F` lines and Parked list (no slug: this session's last goal). Start with `new-goal.py <store> <slug> fix "findings of <source slug>"`, verify the findings against the code in parallel (a read-only agent per area), then questions (first: which findings to fix) → plan as usual. Never write to the source goal's files.
+Input: the source goal's report, `F` lines and Parked list (no slug: this session's last goal). Start with `new-goal.py <store> <slug> fix "findings of <source slug>"`, trust findings the source tagged `verified` (spot-check one; re-verify all only if it fails), verify the rest against the code in parallel (a read-only Explore agent per area, short brief), then questions (first: which findings to fix) → plan as usual. Never write to the source goal's files.
 
 ## Goal change
 

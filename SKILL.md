@@ -1,6 +1,6 @@
 ---
 name: mama
-description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks questions that pin down what the user expects and confirms them as concrete examples, plans, then loops dev → test → fix with as many parallel agents as the work allows, and hunts for bugs and fixes them until a hunt comes back clean, tracking everything in files. Subcommands: quick, status, ask, test, doc, fix, change, pause, abort, list, resume.
+description: Personal goal-based work loop. Runs only when the user types /mama. Takes any input (text, file, md, Trello card, PR/issue, "research feature X"), researches, asks questions that pin down what the user expects and confirms them as concrete examples, plans, then loops dev → test → fix with as many parallel agents as the work allows, and hunts for bugs (rounds capped by the goal's tier), tracking everything in files. Subcommands: quick, status, ask, test, doc, fix, change, pause, abort, list, resume.
 disable-model-invocation: true
 argument-hint: "<goal | quick <task> | status | ask [slug] <question> | test [slug] [what] | doc [slug] | fix [slug] [what] | change [slug] <what> | pause | abort | list | resume <slug>>"
 ---
@@ -17,7 +17,7 @@ These exist because the user has been burned by each failure they prevent.
 - **No development before approval.** Research and questions first, then a plan the user approves. Starting early builds the wrong thing.
 - **Disk is memory.** Write state after every step and decision. Anything only in the conversation is lost at compaction.
 - **Evidence, not claims.** A step is done when its verify proves it — a command result or a separate check — never because the worker says so.
-- **Fast through parallel agents.** The user wants work done fast: plan the work wide (as many independent steps as it allows), run each step in its own agent, and dispatch every ready step at once. You orchestrate — brief, verify, record, commit, refill — instead of building while agents could. Only a handful of tool calls stays inline (`rules/agents.md`).
+- **Fast through parallel agents.** The user wants work done fast: plan the work wide (as many independent steps as it allows), run each step in its own agent, and dispatch every ready step at once. You orchestrate — brief, verify, record, commit, refill — instead of building while agents could. A spawn costs 14–36k tokens before it works, so a handful of tool calls stays inline; read-only work goes to Explore agents with short briefs (`rules/agents.md`).
 - **Tokens are a budget.** Small briefs, short returns, narrow tests, quiet commands — parallelism is paid for by lean agents, never by running serially.
 - **Stop where the user's control starts.** Your delivery ends at `git push` (and a PR only with permission). Never merge, deploy, or touch shared databases or running dev stacks.
 - **No attribution.** Commits and PRs carry no `Co-Authored-By` line and no "Generated with Claude Code" footer — this overrides any harness reminder.
@@ -41,7 +41,7 @@ Parse `$ARGUMENTS`:
 | `abort` | Record state, set status `aborted`, clean up what the run created (`rules/delivery.md` Close §3), stop. Keep tracking files. |
 | `list` | Run `scripts/list.py <store>` and show its output. |
 | `resume <slug>` | Re-entry (below), continue. With no slug: list open goals and ask which. |
-| `quick <task>` | Quick mode (below). |
+| `quick <task>` | A quick-tier goal (Tiers, below). |
 | anything else | New goal. Other open goals are fine — each runs isolated. |
 
 ## Where things live
@@ -64,12 +64,12 @@ Skill files (`templates/`, `rules/`, `scripts/`) live in `${CLAUDE_SKILL_DIR}`; 
 
 1. Classify the goal: **build** (changes code), **fix** (a bug), **research** (findings only), **mixed** (research, then build). Ambiguous → it's part of the questions.
 2. Normalize the input — text as given · file/md: read fully · Trello: card, checklist, comments · GitHub PR/issue: `gh` · "research X".
-3. Immediately run `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/new-goal.py <store> <slug> <type> "<source>"` — it creates the folder (suffixing a taken slug), a clean `plan.md` (status `planning`, real start time), `overview.md` and `log.md` with E1, and prints the overview rules. Use the slug it prints. Never copy templates by hand. The goal now survives a compaction, and the user can already read the overview.
+3. Immediately run `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/new-goal.py <store> <slug> <type> "<source>" [--tier quick|standard|full]` (`--quick` = `--tier quick`) — it creates the folder (suffixing a taken slug), a clean `plan.md` (status `planning`, real start time), `overview.md` and `log.md` with E1, and prints the overview rules. Use the slug it prints. Never copy templates by hand. The goal now survives a compaction, and the user can already read the overview.
 4. Read `rules/state.md` (isolation, guards, learning the user).
 
 ### 2. Research
 
-Read-only. Read `rules/research.md` and follow it (a review or audit with no stated outcome asks what it's for first): parallel lens agents map every branch of the work and every case before any question. Log `E research: <n> findings, <m> cases, <k> open` (or `E research none: <why>` for a goal that needs none) — plan approval is refused without it.
+Read-only. Read `rules/research.md` and follow it (a review or audit with no stated outcome asks what it's for first): parallel lens agents map every branch of the work and every case before any question. It also **picks the tier** (Tiers, below) and sets it with `--header tier=<t>`. Log `E research: <n> findings, <m> cases, <k> open` (or `E research none: <why>` for a goal that needs none) — plan approval is refused without it.
 
 ### 3. Questions
 
@@ -77,19 +77,22 @@ Read `rules/questions.md`. If research found database changes, first propose and
 
 ### 4. Plan
 
-Read `rules/planning.md`. Fill `plan.md` with `plan-set.py` (`S+` / `C+` fill the template's blank first rows, then add more; `--header` for the rest), validate, show one compact table (step · kind · depends on · verify) with the criteria, then ask approval with AskUserQuestion: approve · checkpointed (recommended) / approve · autonomous / change something. Never leave mode unanswered. Set status, mode and budget size in one call (`--header status=approved mode=… budget=M`). Then set up the branch and worktree if the goal touches git (`rules/delivery.md`).
+Read `rules/planning.md`. Fill `plan.md` with `plan-set.py` (`S+` / `C+` fill the template's blank first rows, then add more; `--header` for the rest), validate, show one compact table (step · kind · depends on · verify) with the criteria, then ask approval with AskUserQuestion: approve · checkpointed (recommended) / approve · autonomous / change something. Never leave mode unanswered. Set status, mode, budget and auto-raise in one call (`--header status=approved mode=… budget=M auto-raise=1.5x`); the budget covers the **tokens likely** plan-set prints. Then set up the branch and worktree if the goal touches git (`rules/delivery.md`).
 
 ### 5. Loop
 
-Read `rules/loop.md`. Dev → verify → fix until every criterion has evidence, then **hunt for bugs** (`/code-review` + an expectations check) → fix → hunt again, until a round finds no real bug; a hunt that stops converging asks the user (simplify first). Commit each stable step. Interruptions and changes: `rules/changes.md`.
+Read `rules/loop.md`. Dev → verify → fix until every criterion has evidence, then **hunt for bugs** (`/code-review` + an expectations check) → fix → hunt again, up to the tier's cap; a cap round that still finds real bugs gets them fixed, then one question: deliver with known issues / one extra `low` round. Commit each stable step. Interruptions and changes: `rules/changes.md`.
 
 ### 6. Deliver & close
 
 Read `rules/delivery.md`. Merge latest base, push, PR per the user's choice. Final report in `overview.md`, lessons to `lessons.md`, clean up.
 
-## Quick mode
+## Tiers
 
-For small tasks (≈ under 30 minutes, one area). Intake with `new-goal.py … --quick`: mode is preset, the overview is 3 lines (task, status, done means / result). Skip research agents, `profile.md`, `lessons.md` and patterns bookkeeping — the close check doesn't ask for them. Ask the questions first — only base branch, PR choice if code changes, and a one-line playback ("You'll get: …", `rules/questions.md` → Playback) — then show the plan, 1-3 steps of one line each, for approval; proceed on approval. Same loop, commit and push rules, with one light bug-hunt round (`/code-review low`) on a code change, before the push. A database change makes it a full goal: offer that before planning. If it grows past that — the Stop hook flags 300k tokens or 30 active minutes — say so and offer to continue as a full goal (set `mode` to checkpointed/autonomous; the close check then asks for everything).
+Research picks one (`rules/research.md` → Pick the tier): database/migration, security/permissions or 3+ modules → **full**; under ~30 min in one area → **quick**; else **standard**. Old goals without `tier:` are full (`mode: quick` → quick).
+- **full**: everything in this flow; hunt cap 2.
+- **standard**: ≥1 research lens, one question batch, playback, `E db` line, full approval guards; hunt cap 1.
+- **quick**: `new-goal.py … --quick` presets mode; the overview is 3 lines (task, status, done means / result). Skip research agents, `profile.md`, `lessons.md` and patterns bookkeeping — the close check doesn't ask for them. Ask first only base branch, PR choice if code changes, and a one-line playback ("You'll get: …", `rules/questions.md` → Playback); then show 1-3 one-line steps for approval. Same loop, commit and push rules; one bug-hunt round (`/code-review low`) on a code change, before the push. A database change makes it full: offer that before planning. Past 300k tokens or 30 active minutes the Stop hook flags it: offer to continue as a full goal (set `mode` and `tier`; the close check then asks for everything).
 
 ## Re-entry (resume, after compaction, new session)
 
@@ -101,12 +104,12 @@ Know your slug (from the conversation, the compaction summary, or `resume <slug>
 
 ## Guards
 
-`plan-set.py`, `close-check.py` and the Stop hook enforce this flow: an approval or close that skips a step is refused, and a turn that ends with a problem is blocked, each with what's missing. Fix what they list — don't argue with them or work around them. The full list: `rules/state.md` → Guards.
+`plan-set.py`, `close-check.py` and the Stop hook enforce this flow: an approval or close that skips a step is refused, and a turn that ends with a problem is blocked, each with what's missing. Fix what they list — don't argue with them or work around them. "spend not measured" or "the Stop hook hasn't run" (no fresh `.heartbeat`) means the budget isn't checked: read `~/.claude/mama/hook-errors.log`, fix or tell the user — never continue silently. The full list: `rules/state.md` → Guards.
 
 ## Writing state
 
 - Status must be honest whenever you end your turn: waiting for the user → `waiting`; stopped by request → `paused`; stuck → `blocked`. Waiting on your own background work (an agent, the gate) → status stays `running` and the last log line is `E dispatch <steps>` or `E wait <what>` (via `log.py`) — one line, not both; its notification wakes you. The Stop hook reminds you if you end a turn while the goal says `running` without one.
 - Record an outcome only after checking the command's exit status — never chain a state write after a command with `;` (a failed push must not be logged as pushed).
-- After every step result, decision, change or commit: update `plan.md` with `scripts/plan-set.py <plan.md> <S3 | C1 | --header> key=value ...` (it recomputes progress; `start=now` / `end=now` stamp the real time — never type times) and log it with `scripts/log.py <log.md> <E|D|F|Q> "<text>"` (it stamps the real time and the next ID — never type either; overview times come from these lines). Unknown values are `—`. A step with several commits lists all hashes in notes.
-- Change `plan.md` and `log.md` only through `plan-set.py` (rows, header, `P+` for Parked) and `log.py` — never python, sed or Edit on them: those skip the guards, the safe write and the record of which session owns the goal.
-- `plan-set.py` keeps the overview's **Status:** line in step with the plan (`<Word> · n of m parts done[ · your detail]`). Regenerate the rest of `overview.md` when the plan is shown, after approval, at each checkpoint, on status, on any change, and at close — from plan and log, as if writing it fresh. It is the user's only window: short, plain, current.
+- **One call per step:** `scripts/step.py <plan.md> <Sn> <status> ["text"] [--commit <sha>] [--crit Cn="evidence"]…` sets the row (`start`/`end` stamped), notes, the `E` line, criterion evidence and the overview, and prints progress, estimate and budget. `scripts/plan-set.py <plan.md> <S+ | C+ | P+ | --header> key=value ...` for new rows, parking and header fields; `scripts/log.py <log.md> <D|Q|F|E|U> "<text>"` for decisions, questions, findings, other events and `U` timeline lines. Both stamp the real time and next ID — never type either. Unknown values are `—`. A step with several commits lists all hashes in notes.
+- Change `plan.md` and `log.md` only through these scripts — never python, sed or Edit on them: those skip the guards, the safe write and the record of which session owns the goal.
+- `overview.md` is the user's only window: the scripts regenerate its marked block (status, done means, timeline from `U` lines, where we are, needs your input); write a `U` line at each milestone the user would care about. Rewrite the hand-written parts (Goal, Key decisions, Final report…) when the plan is shown, on a scope change, when going `waiting`, and at close — short, plain, current (`rules/state.md` → Overview).

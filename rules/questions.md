@@ -51,6 +51,8 @@ Corrections → `D … (tag: user)` lines and changed examples; show it again on
 
 Quick goals skip the checklist log; their playback is one line ("You'll get: …" + not included), one more option set in the quick questions' AskUserQuestion — most needed for a page, document or review, where a wrong picture costs a redo.
 
+Standard goals have no database change (one makes them full): log `E db: none — <why>`, ask everything in one batch, then the playback — a second batch only if an answer opens a new case.
+
 ## Always asked
 
 | Goal | Must ask |
