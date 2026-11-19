@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: budget-auto-raises-once
+expected_outcome: |
+  With an approved checkpointed goal (text-stats: S1 done in its worktree, S2-S6 todo) at 75% of
+  a small budget (~30k / L 40k, approved L 40k, auto-raise 1.5x), /mama resume text-stats sets the
+  goal running and keeps building. The first time the Stop hook measures the goal at ≥ 70% of
+  its ceiling it raises the ceiling itself to 60k (1.5 × approved), logs
+  `D budget auto-raised to … (tag: auto)`, and the run keeps going without asking. When the spend
+  reaches 70% of the raised ceiling the run stops dispatching, sets the goal waiting and asks the
+  user continue / cut scope / stop; it never raises the budget a second time on its own.
+context:
+  scaffold_script: place-files.sh

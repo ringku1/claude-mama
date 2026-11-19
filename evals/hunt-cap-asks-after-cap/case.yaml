@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: hunt-cap-asks-after-cap
+expected_outcome: |
+  With an approved autonomous full-tier goal (parse-prices, hunt cap 2) paused in its second
+  bug-hunt round (round 1 found one real bug, fixed in S4; round 2's /code-review low reported
+  that the fix makes "-$5.00" parse as 5.0, breaking C2; nothing triaged yet), /mama resume
+  parse-prices fixes the bug test first in a fix step, logs the round as `E hunt 2: …` with
+  real ≥ 1, then, because the cap round found real bugs, sets the goal waiting and asks the user
+  one question — deliver with known issues / one more low round — without running a third round,
+  pushing, or answering the question itself.
+context:
+  scaffold_script: place-files.sh

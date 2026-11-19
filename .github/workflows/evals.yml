@@ -1,0 +1,72 @@
+name: evals
+
+# Runs mama's eval suite (evals/*) with the Claude Code CLI against this checkout. Each run calls
+# the Anthropic API on the ANTHROPIC_API_KEY secret and costs money; without the secret the job
+# skips with a notice. Case files are checked for free on every push by tests/test_evals_load.py.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - SKILL.md
+      - rules/**
+      - evals/**
+      - hooks/**
+      - scripts/**
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_VERSION: 2.1.328
+    steps:
+      - name: Skip without an API key
+        id: key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::evals skipped: set the ANTHROPIC_API_KEY repository secret to run them"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.run == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.run == 'true'
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.run == 'true'
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        if: steps.key.outputs.run == 'true'
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+      - name: Check the cases load
+        if: steps.key.outputs.run == 'true'
+        run: cd tests && python -W ignore -m unittest test_evals_load
+      - name: Run evals
+        if: steps.key.outputs.run == 'true'
+        run: >-
+          claude plugin eval . --scaffold --trust-plugin --ablation none
+          --allow-tools Bash Write Edit Agent
+      - name: Upload the report
+        if: always() && steps.key.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-report
+          path: evals/results/
+          if-no-files-found: warn
+          retention-days: 30
