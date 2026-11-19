@@ -13,7 +13,7 @@ Claude's folder is $CLAUDE_CONFIG_DIR when set, else ~/.claude (%USERPROFILE%\\.
    `python3`-vs-`python` differences matter. Other settings are kept; the first time, the original is saved
    as settings.json.bak (never overwritten later). An unreadable settings.json is left untouched.
    Claude Code also loads the linked folder as plugin mama@skills-dir, so its hooks/hooks.json registers each
-   hook a second time; that copy sees these settings.json hooks and steps aside (MAMA_VIA=plugin in mama-hook.py).
+   hook a second time; that copy sees these settings.json hooks and steps aside (MAMA_VIA=<plugin root> in mama-hook.py).
    An earlier version turned mama@skills-dir off, which hid /mama; any run takes that "false" out again.
    Safe to re-run.
 

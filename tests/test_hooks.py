@@ -76,6 +76,14 @@ class HookBase(Base):
                     f"if __name__ == '__main__':\n    {main_body}\n")
         return os.path.join(root, "hooks", "mama-hook.py")
 
+    def stub_spend(self, hook, body):
+        """In the copied skill of hook, wrap spend.measure: body runs with plan, transcript, deadline and
+        returns the total (it sets measure.partial itself; the real measure is _real_measure)."""
+        sp = os.path.join(os.path.dirname(os.path.dirname(hook)), "scripts", "spend.py")
+        with open(sp, "a", encoding="utf-8") as f:
+            f.write("\n_real_measure = measure\n\n\ndef measure(plan, transcript=None, deadline=None):\n"
+                    "    measure.partial = False\n" + "".join(f"    {l}\n" for l in body.splitlines()))
+
     def done_goal_with_another_problem(self):
         g = self.running_goal()
         self.run_s("log.py", os.path.join(g, "log.md"), "D", "pick x | tag: user")  # not learned: a problem
@@ -227,14 +235,18 @@ class Stop(HookBase):
 
 
 class OnceOnly(HookBase):
-    """The one-liner's skills/mama also loads as plugin mama@skills-dir: its hooks.json copy (MAMA_VIA=plugin)
-    steps aside when settings.json already runs mama-hook.py."""
+    """The one-liner's skills/mama also loads as plugin mama@skills-dir: its hooks.json copy (MAMA_VIA = the
+    plugin root) steps aside only when that root is <claude folder>/skills/mama and settings.json already runs
+    mama-hook.py. A marketplace install (another root) always runs, stale settings entry or not."""
 
     def settings(self, text, base=None):
         d = base or os.path.join(self.home, ".claude")
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "settings.json"), "w", encoding="utf-8") as f:
             f.write(text)
+
+    def skills_dir(self, base=None):
+        return os.path.join(base or os.path.join(self.home, ".claude"), "skills", "mama")
 
     ONE_LINER = json.dumps({"hooks": {"PreCompact": [{"hooks": [
         {"type": "command", "command": "/usr/bin/python3", "args": ["/h/.claude/skills/mama/hooks/mama-hook.py", "precompact"]}]}]}})
@@ -244,11 +256,18 @@ class OnceOnly(HookBase):
         log = os.path.join(g, "log.md")
         self.settings(self.ONE_LINER)
         before = self.read(log)
-        self.assertEqual(self.hook("precompact", MAMA_VIA="plugin"), "")
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.skills_dir()), "")
         self.assertEqual(self.read(log), before)  # no work: no `E compaction` line
-        self.assertEqual(self.hook("stop", raw="[1, 2]", MAMA_VIA="plugin"), "")  # before reading stdin
+        self.assertEqual(self.hook("stop", raw="[1, 2]", MAMA_VIA=self.skills_dir() + os.sep), "")  # before reading stdin
         self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "mama", "hook-errors.log")))
         self.assertIn("keep: the slug 'demo'", self.hook("precompact"))  # the settings.json hook itself runs
+
+    def test_marketplace_install_runs_despite_a_stale_settings_entry(self):
+        self.running_goal()
+        self.settings(self.ONE_LINER)
+        market = os.path.join(self.home, ".claude", "plugins", "cache", "mama", "mama", "1.0.0")
+        for via in (market, "plugin", ""):
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=via), via)
 
     def test_plugin_copy_runs_without_settings_hooks(self):
         self.running_goal()
@@ -256,16 +275,19 @@ class OnceOnly(HookBase):
                      '{"hooks": ', '[1]', '{"hooks": {"Stop": 3}}'):
             if text is not None:
                 self.settings(text)
-            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA="plugin"), text)
+            self.assertIn("keep: the slug 'demo'", self.hook("precompact", MAMA_VIA=self.skills_dir()), text)
 
     def test_reads_claude_config_dir_settings(self):
         self.running_goal()
         cfg = os.path.join(self.tmp, "cfg")
         self.settings(self.ONE_LINER, base=cfg)
-        self.assertEqual(self.hook("precompact", MAMA_VIA="plugin", CLAUDE_CONFIG_DIR=cfg), "")
+        self.assertEqual(self.hook("precompact", MAMA_VIA=self.skills_dir(cfg), CLAUDE_CONFIG_DIR=cfg), "")
+        self.assertIn("keep: the slug 'demo'",  # ~/.claude/skills/mama is not the config folder's skill then
+                      self.hook("precompact", MAMA_VIA=self.skills_dir(), CLAUDE_CONFIG_DIR=cfg))
         self.settings(self.ONE_LINER)  # ~/.claude is not the config folder then
+        none = os.path.join(self.tmp, "none")
         self.assertIn("keep: the slug 'demo'",
-                      self.hook("precompact", MAMA_VIA="plugin", CLAUDE_CONFIG_DIR=os.path.join(self.tmp, "none")))
+                      self.hook("precompact", MAMA_VIA=self.skills_dir(none), CLAUDE_CONFIG_DIR=none))
 
 
 class Lean(HookBase):
@@ -397,10 +419,9 @@ class Lean(HookBase):
         for _ in range(6):
             self.spend(g, 1000)
         hook = self.skill_with_close_check("sys.exit(0)")
-        sp = os.path.join(os.path.dirname(os.path.dirname(hook)), "scripts", "spend.py")
-        src = self.read(sp)
-        self.assertIn("DEADLINE = 6", src)
-        open(sp, "w", encoding="utf-8").write(src.replace("DEADLINE = 6", "DEADLINE = -1", 1))  # always past
+        src = self.read(hook)
+        self.assertIn("HOOK_BUDGET = 7.0", src)
+        open(hook, "w", encoding="utf-8").write(src.replace("HOOK_BUDGET = 7.0", "HOOK_BUDGET = -1.0", 1))  # always past
         self.hook("stop", hook=hook)
         self.assertTrue(os.path.exists(cache))  # cut short: kept for the next Stop
         for _ in range(10):
@@ -419,6 +440,58 @@ class Lean(HookBase):
         self.assertTrue(m, reason)
         self.assertLess(float(m.group(1)), t + 5)  # inside the hook's close-check budget
         self.assertGreater(float(m.group(1)), t)
+
+
+class HookDeadline(HookBase):
+    """Claude Code kills the Stop hook at 10s: every measure shares one deadline, a cut measure is not
+    the spend, and the close check of a done goal is not starved by the hook's own measure."""
+
+    def closed_with_cache(self, slug):
+        g = self.running_goal(slug)
+        s = self.read(self.plan(g)).replace("status: running", "status: aborted")
+        open(self.plan(g), "w", encoding="utf-8").write(s)
+        open(os.path.join(g, ".spend-cache.json"), "w").write("{}")
+        return g
+
+    def test_every_measure_shares_one_deadline_inside_the_kill(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        rec = os.path.join(self.tmp, "deadlines")
+        # each measure runs until its deadline (as a huge transcript would), and is cut there
+        self.stub_spend(hook, f"open({rec!r}, 'a').write(repr(deadline) + chr(10))\n"
+                              "time.sleep(max(0.0, (deadline or time.time() + DEADLINE) - time.time()))\n"
+                              "measure.partial = True\nreturn 1000")
+        self.closed_with_cache("old1")
+        self.closed_with_cache("old2")
+        self.running_goal("cur")
+        t = time.time()
+        out = self.hook("stop", hook=hook)
+        self.assertLess(time.time() - t, 9)  # under Claude Code's 10s kill
+        self.assertIn("still marked running", json.loads(out)["reason"])
+        ds = [float(l) for l in self.read(rec).split()] if os.path.exists(rec) else []
+        self.assertTrue(ds and len(set(ds)) == 1, ds)  # one deadline for all (the rest skipped once it passed)
+        self.assertLess(ds[0], t + 8.5)
+
+    def test_partial_spend_is_not_written_or_judged(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        self.stub_spend(hook, "measure.partial = True\nreturn 900000")
+        g = self.running_goal()  # autonomous, M = 1M
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "wait agent")
+        before = re.search(r"budget: [^|\n]*", self.read(self.plan(g))).group(0)
+        self.assertEqual(self.hook("stop", hook=hook), "")  # 90% of a cut read: not judged
+        self.assertIn(before, self.read(self.plan(g)))
+        self.assertNotIn("~900k", self.read(self.plan(g)))
+
+    def test_done_goal_close_check_not_starved_by_the_measure(self):
+        hook = self.skill_with_close_check("sys.exit(0)")
+        self.stub_spend(hook, "time.sleep(max(0.0, (deadline or time.time() + DEADLINE) - time.time()))\n"
+                              "measure.partial = True\nreturn 1000")
+        g = self.done_goal_with_another_problem()
+        open(os.path.join(g, ".spend-cache.json"), "w").write("{}")  # its final measure still to do
+        t = time.time()
+        reason = json.loads(self.hook("stop", hook=hook))["reason"]
+        self.assertLess(time.time() - t, 9)
+        self.assertIn("nothing was learned", reason)
+        self.assertNotIn("close check didn't finish", reason)
 
 
 if __name__ == "__main__":

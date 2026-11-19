@@ -62,7 +62,7 @@ class Manifests(unittest.TestCase):
             self.assertEqual(h["type"], "command")
             self.assertNotIn("args", h)  # shell form: Git Bash on Windows, so scripts/py can find Python
             self.assertEqual(h["shell"], "bash")
-            self.assertEqual(h["command"], 'MAMA_VIA=plugin bash "${CLAUDE_PLUGIN_ROOT}/scripts/py" '
+            self.assertEqual(h["command"], 'MAMA_VIA="${CLAUDE_PLUGIN_ROOT}" bash "${CLAUDE_PLUGIN_ROOT}/scripts/py" '
                                            f'"${{CLAUDE_PLUGIN_ROOT}}/hooks/mama-hook.py" {mode}')
             for rel in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"]+)", h["command"]):
                 self.assertTrue(os.path.isfile(os.path.join(SKILL, rel)), rel)
@@ -91,13 +91,21 @@ class Manifests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, True)
         errors = os.path.join(tmp, ".claude", "mama", "hook-errors.log")
-        os.makedirs(os.path.join(tmp, ".claude"))
+        os.makedirs(os.path.join(tmp, ".claude", "skills"))
         with open(os.path.join(tmp, ".claude", "settings.json"), "w", encoding="utf-8") as f:
             json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/bin/python3",
                                                       "args": ["/x/skills/mama/hooks/mama-hook.py", "stop"]}]}]}}, f)
+        # a marketplace install (its root is not ~/.claude/skills/mama) with a stale one-liner entry: it runs
+        self.run_plugin_hook(tmp, "Stop", "[1, 2]")
+        self.assertTrue(os.path.exists(errors))
+        os.remove(errors)
+        try:
+            os.symlink(SKILL, os.path.join(tmp, ".claude", "skills", "mama"))  # the one-liner's link
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks")
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertFalse(os.path.exists(errors))
-        os.remove(os.path.join(tmp, ".claude", "settings.json"))  # a marketplace install: the plugin's hooks run
+        os.remove(os.path.join(tmp, ".claude", "settings.json"))  # skills/mama without the one-liner's hooks: runs
         self.run_plugin_hook(tmp, "Stop", "[1, 2]")
         self.assertTrue(os.path.exists(errors))
 

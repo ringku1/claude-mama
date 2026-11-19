@@ -7,9 +7,10 @@ line (time, mode, error) appended to ~/.claude/mama/hook-errors.log.
 This session's goals are the ones it recorded writing to (activity.log, any store). No record,
 no goal — the hooks never read transcripts to guess ownership.
 
-- MAMA_VIA=plugin (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
-                mama@skills-dir, so each hook is registered twice; when settings.json already runs
-                mama-hook.py, this plugin copy exits at once and leaves the work to that one.
+- MAMA_VIA=<plugin root> (set by hooks/hooks.json): the one-liner's skills/mama also loads as plugin
+                mama@skills-dir, so each hook is registered twice; when that root is <claude folder>/skills/mama
+                and settings.json already runs mama-hook.py, this plugin copy exits at once and leaves the
+                work to that one. Any other root (a marketplace install) always runs.
 - precompact:   logs `E compaction` in this session's open goal (not recorded as a write) and
                 tells the summary to keep it (slug, paths).
 - every mode:   at most once a day starts scripts/self-update.py in the background (git installs;
@@ -28,6 +29,9 @@ no goal — the hooks never read transcripts to guess ownership.
                 has a user decision not yet followed by learning (patterns.md / `E learn` line; not quick mode);
                 or says `done` while close-check.py fails. The same problem list blocks only once
                 (kept in the goal's .last-block); a changed list blocks again.
+                Claude Code kills the hook at 10s: all its work shares one deadline (HOOK_BUDGET from the
+                start); a done goal's close check runs before the hook's own measure; a measure cut by the
+                deadline is not the spend, so it is neither written nor judged that turn.
 """
 import datetime
 import json
@@ -38,13 +42,15 @@ import sys
 import time
 
 STARTED = time.monotonic()
+HOOK_BUDGET = 7.0  # seconds of work from the hook's start; Claude Code kills it at 10s
+DEADLINE = time.time() + HOOK_BUDGET  # time.time() epoch, shared by every measure and the close check
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 OPEN = {"planning", "approved", "running", "waiting", "paused", "blocked"}
 ERRORS = os.path.expanduser("~/.claude/mama/hook-errors.log")
 UPDATE_STAMP = os.path.expanduser("~/.claude/mama/.update-check")
 UPDATE_EVERY = 24 * 3600
-CLOSE_CHECK_BUDGET = 5.0  # seconds since the hook started; the hook itself is killed at 10s
+CLOSE_CHECK_RESERVE = 1.0  # seconds of DEADLINE kept for the hook's own measure after the close check
 
 try:
     sys.path.insert(0, SCRIPTS)
@@ -57,16 +63,31 @@ except Exception as e:  # reported by __main__, so a broken install still exits 
     IMPORT_ERROR = e
 
 
+def claude_dir():
+    return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
+
+
 def registered_in_settings():
     """Whether <claude folder>/settings.json runs mama-hook.py itself (the one-line install). An
     unreadable or invalid file counts as no: the plugin copy then runs."""
-    base = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
+    base = claude_dir()
     try:
         with open(os.path.join(base, "settings.json"), encoding="utf-8") as f:
             hooks = json.load(f).get("hooks")
         return any("mama-hook.py" in json.dumps(e) for v in hooks.values() if isinstance(v, list) for e in v)
     except Exception:
         return False
+
+
+def plugin_copy_of_one_liner():
+    """This is hooks.json's copy (MAMA_VIA = its plugin root) of the one-liner's own skills/mama, whose
+    hooks settings.json already runs. A marketplace install has another root: it always runs."""
+    via = os.environ.get("MAMA_VIA") or ""
+    if not os.path.isabs(via):
+        return False
+    same = os.path.normcase(os.path.realpath(via)) == os.path.normcase(
+        os.path.realpath(os.path.join(claude_dir(), "skills", "mama")))
+    return same and registered_in_settings()
 
 
 def main_checkout(cwd):
@@ -195,11 +216,11 @@ def close_problems(plan):
     error that drops the other problems."""
     goal = os.path.dirname(plan)
     unfinished = f"close check didn't finish — run scripts/close-check.py {goal}"
-    left = CLOSE_CHECK_BUDGET - (time.monotonic() - STARTED)
+    left = DEADLINE - CLOSE_CHECK_RESERVE - time.time()
     if left < 0.5:
         return unfinished
-    # its spend measure must fit too: stop reading transcripts ~2s before the budget ends
-    env = dict(os.environ, MAMA_SPEND_DEADLINE=str(time.time() + max(0.0, left - 2)))
+    # its spend measure must fit too: stop reading transcripts 1.5s before its time ends
+    env = dict(os.environ, MAMA_SPEND_DEADLINE=str(time.time() + max(0.0, left - 1.5)))
     try:
         r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "close-check.py"), goal],
                            capture_output=True, text=True, timeout=left, env=env)
@@ -248,13 +269,17 @@ def hunt_stalled(plan):
 def measure_budget(plan, transcript, closed=False):
     """Write the measured spend into the plan header (mtime kept); return (pct of ceiling or None,
     tokens or None). A closed goal is measured once more (its final spend), then its cache is
-    deleted, so later turns skip it and no done goal keeps a cache on disk."""
+    deleted, so later turns skip it and no done goal keeps a cache on disk. A measure cut by the
+    hook's DEADLINE is only part of the spend: not written, not judged (None, None); the next Stop
+    resumes from the cache."""
     sp = _load("mama_spend", "spend.py")
     cache = os.path.join(os.path.dirname(plan), sp.CACHE)
     if closed and not os.path.exists(cache):
         return None, None
-    total = sp.measure(plan, transcript)
-    if closed and not getattr(sp.measure, "partial", False):  # cut by the deadline: the next Stop finishes it
+    total = sp.measure(plan, transcript, deadline=DEADLINE)
+    if getattr(sp.measure, "partial", False):  # cut by the deadline: the next Stop finishes it
+        return None, None
+    if closed:
         try:
             os.remove(cache)
         except OSError:
@@ -277,8 +302,10 @@ def measure_budget(plan, transcript, closed=False):
 def drop_closed_caches(inp, earlier):
     """The session's earlier goals that are closed but still hold a spend cache (the session moved
     on to another goal before the Stop hook saw them closed): measure each once more, so the plan
-    keeps its final spend, and delete the cache."""
+    keeps its final spend, and delete the cache. Out of time: left for a later Stop."""
     for g in earlier:
+        if time.time() >= DEADLINE - 0.5:
+            return
         if g["status"] in OPEN or not os.path.exists(os.path.join(g["dir"], ".spend-cache.json")):
             continue
         try:
@@ -296,8 +323,8 @@ def block_once(goal_dir, reason):
                 return
     except OSError:
         pass
+    print(json.dumps({"decision": "block", "reason": reason}), flush=True)  # out before any later kill
     fileio.write_atomic(last, reason)
-    print(json.dumps({"decision": "block", "reason": reason}))
 
 
 def stop(inp, g):
@@ -308,6 +335,8 @@ def stop(inp, g):
     if g["status"] not in OPEN and idle > 3600:
         return  # a goal closed earlier — don't nag about it in later, unrelated turns
     problems = []
+    # a done goal's close check first: it warms the spend cache, and the hook's own measure can't starve it
+    close_out = close_problems(g["plan"]) if g["status"] == "done" else ""
     try:
         pct, spent = measure_budget(g["plan"], inp.get("transcript_path", ""), closed=g["status"] not in OPEN)
     except Exception:
@@ -361,12 +390,10 @@ def stop(inp, g):
         problems.append(
             "A user decision was logged but nothing was learned since. For each answer that overrode your "
             "recommendation or stated a preference run scripts/learn.py (seen/stated/contra); if none, log `E learn none`.")
-    if g["status"] == "done":
-        out = close_problems(g["plan"])
-        if out.startswith("close check didn't finish"):
-            problems.append(out)
-        elif out:
-            problems.append("Status is done but the close checklist fails:\n" + out)
+    if close_out.startswith("close check didn't finish"):
+        problems.append(close_out)
+    elif close_out:
+        problems.append("Status is done but the close checklist fails:\n" + close_out)
     if problems:
         block_once(g["dir"], f"mama goal '{g['slug']}':\n- " + "\n- ".join(problems))
     else:
@@ -469,7 +496,7 @@ def report(mode, err):
 
 
 if __name__ == "__main__":
-    if os.environ.get("MAMA_VIA") == "plugin" and registered_in_settings():
+    if plugin_copy_of_one_liner():
         sys.exit(0)  # the settings.json hook does this work; running both would do it twice
     _mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:

@@ -80,7 +80,7 @@ class Install(unittest.TestCase):
 
     def test_one_liner_leaves_skills_dir_plugin_on(self):
         # Claude Code loads skills/mama as plugin mama@skills-dir (it has .claude-plugin/); turning it off hides
-        # /mama too, so the installer leaves it on and that copy's hooks step aside (MAMA_VIA=plugin)
+        # /mama too, so the installer leaves it on and that copy's hooks step aside (MAMA_VIA=<plugin root>)
         self.write_settings('{"enabledPlugins": {"other@x": true}}')
         self.install()
         self.assertEqual(self.settings()["enabledPlugins"], {"other@x": True})
