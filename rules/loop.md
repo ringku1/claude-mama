@@ -46,7 +46,7 @@ Starts when every build and fix step is done, before the pre-delivery gate; cove
 
 **Stop rule**: a round with **0 real** ends the hunt. Below the cap, a round with real bugs → fix them, hunt again. The **cap round** with real bugs → still fix them (failing-first), then one decision — status `waiting`, ask: deliver with the known issues listed (recommended when fixes were small) / one extra `low` round on the fixes. Log it as `D hunt: deliver with known issues … (tag: user)` or `D hunt: extra round … (tag: user)`; an extra round that again finds real bugs needs another such D line. Never run a round past the cap unasked. The Stop hook blocks once when a cap round with real bugs has no hunt decision after it; the close check refuses a code goal whose last hunt wasn't clean unless that decision follows it (an older `D deliver with known issues … (tag: user)` still counts).
 
-**Before the push**: hunt what will be delivered; the close check refuses a goal whose last push precedes its last hunt (push again once clean, and log it).
+**Before the push**: hunt what will be delivered; the close check refuses a goal whose last push precedes its last hunt (push again once clean, and log it). **After the push**: CI on it must be green (`rules/delivery.md` → Push); red CI is a failed verify — fix, push, check again, like any other.
 
 **No code changed** (research, docs only): log `E hunt none: <why>`.
 

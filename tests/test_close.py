@@ -229,6 +229,7 @@ class CloseBase(Base):
         self.run_s("log.py", log, "E", "hunt 2: 1 found, 0 real, 0 fixed — /code-review high")
         self.assertIn("the last push came before the last hunt", self.close(g, ok=False))
         self.run_s("log.py", log, "E", "push: feat/x up to date after the clean hunt")
+        self.run_s("log.py", log, "E", "ci abc1234: green — 1 run")
         self.close(g, ok=True)
 
     def test_hunt_none_and_research_goals(self):
@@ -441,6 +442,100 @@ class Commits(CloseBase):
         g = self.ready_goal(base="n/a", branch="n/a")
         self.git("commit", "-q", "--allow-empty", "-m", self.BAD)
         self.assertEqual(self.problems(g), [])
+
+
+
+class CI(CloseBase):
+    """A code goal is met only when CI on its last push is green (rules/delivery.md → Push)."""
+
+    def pushed(self):
+        g = self.ready_goal()
+        log = os.path.join(g, "log.md")
+        self.run_s("log.py", log, "E", "pushed abc1234 to feat/x")
+        return g, log
+
+    def test_push_needs_a_ci_result(self):
+        g, log = self.pushed()
+        self.assertIn("pushed but CI wasn't checked", self.close(g, ok=False))
+        self.run_s("log.py", log, "E", "ci abc1234: green — 3 runs")
+        self.close(g, ok=True)
+
+    def test_red_ci_reopens_the_loop_until_green_again(self):
+        g, log = self.pushed()
+        self.run_s("log.py", log, "E", "ci abc1234: red — test (failure) https://x/1")
+        out = self.close(g, ok=False)
+        self.assertIn("CI is red on the last push (test (failure) https://x/1)", out)
+        self.run_s("log.py", log, "E", "pushed def5678 to feat/x")  # the fix, pushed
+        self.assertIn("pushed but CI wasn't checked", self.close(g, ok=False))  # the old red doesn't count either way
+        self.run_s("log.py", log, "E", "ci def5678: green — 3 runs")
+        self.close(g, ok=True)
+
+    def test_red_ci_closes_only_with_the_users_ok(self):
+        g, log = self.pushed()
+        self.run_s("log.py", log, "E", "ci abc1234: red — e2e (failure)")
+        self.run_s("log.py", log, "D", "ci: deliver with red CI — e2e fails on main too (tag: inferred)")
+        self.close(g, ok=False)  # not the user's choice
+        self.run_s("log.py", log, "D", "ci: deliver with red CI — e2e fails on main too (tag: user)")
+        self.close(g, ok=True)
+
+    def test_pending_and_bare_none_dont_count(self):
+        g, log = self.pushed()
+        self.run_s("log.py", log, "E", "ci abc1234: pending — 1 of 2 runs still running after 30m")
+        self.assertIn("CI is still running", self.close(g, ok=False))
+        self.run_s("log.py", log, "E", "ci none")
+        self.assertIn("needs its reason", self.close(g, ok=False))
+        self.run_s("log.py", log, "E", "ci none: no workflows in this repo")
+        self.close(g, ok=True)
+
+    def test_no_push_or_research_goal_needs_no_ci(self):
+        self.assertNotIn("CI", self.close(self.ready_goal(), ok=True))
+        r = self.run_s("new-goal.py", self.store, "study", "research", "t").splitlines()[0]
+        self.run_s("log.py", os.path.join(r, "log.md"), "E", "pushed abc1234 to docs/x")
+        self.assertNotIn("CI", self.close(r))
+
+
+class MergedBranch(CloseBase):
+    """A goal branch already merged into its base is deleted, so none is left behind."""
+    git, setup_repo = Commits.git, Commits.setup_repo  # the repo, without rerunning Commits' tests
+
+    def branch_goal(self):
+        self.setup_repo()
+        self.git("checkout", "-q", "-b", "feat/x")
+        self.git("commit", "-q", "--allow-empty", "-m", "feat(api): add filter")
+        self.git("push", "-q", "origin", "feat/x")
+        return self.ready_goal()
+
+    def merged(self, g):
+        return [l for l in self.close(g).splitlines() if "is merged into" in l]
+
+    def test_unmerged_branch_is_left_alone(self):
+        self.assertEqual(self.merged(self.branch_goal()), [])
+
+    def test_merged_branch_must_be_deleted_or_kept_with_a_reason(self):
+        g = self.branch_goal()
+        self.git("push", "-q", "origin", "feat/x:main")  # fast-forwarded into the base
+        self.git("fetch", "-q", "origin")
+        out = self.merged(g)
+        self.assertEqual(len(out), 1, out)
+        self.assertIn("still exists (origin and local)", out[0])
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "origin/main")
+        self.git("push", "-q", "origin", "--delete", "feat/x")
+        self.git("branch", "-d", "feat/x")
+        self.git("fetch", "-q", "--prune", "origin")
+        self.assertEqual(self.merged(g), [])  # gone: nothing to flag even before it's logged
+
+    def test_kept_branch_is_not_flagged(self):
+        g = self.branch_goal()
+        self.git("push", "-q", "origin", "feat/x:main")
+        self.git("fetch", "-q", "origin")
+        self.run_s("log.py", os.path.join(g, "log.md"), "E", "branch kept: the user's own feature branch")
+        self.assertEqual(self.merged(g), [])
+
+    def test_work_on_the_base_itself_has_no_branch_to_delete(self):
+        self.setup_repo()
+        g = self.ready_goal(base="main", branch="main")
+        self.assertEqual(self.merged(g), [])
 
 
 class Overview(CloseBase):

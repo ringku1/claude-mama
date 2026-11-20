@@ -33,6 +33,8 @@ Before work starts and right before push: `git -C <main checkout> fetch origin`,
 
 When every criterion has evidence, the bug hunt is clean and the milestone check passed: run `profile.md`'s full gate once (under `scripts/lock.py <store>/.heavy.lock`), merge the latest base, push (`git -C <main checkout> push -u origin <branch>`). On exit 0, log `E pushed <sha> to <branch or PR>`. No remote: commit only, `pr: none`, say so.
 
+**Then wait for CI** — the goal is met only when CI on what you pushed is green. Run `scripts/ci-wait.py <worktree> <sha> --log <log>` in the background (log `E wait ci <sha>`); it logs `E ci <sha>: green | red | pending` or `E ci none: <why>` (no `gh`, no run started — say so in the final report). **Red** → back to the loop (`rules/loop.md`): read the failing job's log (`gh run view <id> --log-failed`), fix it as a fix step (failing-first), push, wait again. A failure that isn't this goal's (it fails on `origin/<base>` too) → ask: fix it here / deliver with red CI (`D ci: deliver with red CI … (tag: user)`). The close check refuses a code goal whose last push has no green (or accepted) CI.
+
 ## Pull request (only per the user's choice)
 
 The header's `pr` is one of `ask-at-end | auto | none | declined | <url>` (plan-set refuses anything else).
@@ -61,6 +63,6 @@ Comment right after plan approval (what will change, 1-2 lines), after each push
      Actual = first to last log line, across days (log.py writes a `-- YYYY-MM-DD` marker on date change); active excludes user waits and idle gaps over 2h. Tokens: from close-check's `METRICS:` line (run it first; it drafts this line).
    - `<store>/profile.md` — update facts this goal changed (command, convention, shared "keep X in sync").
    - `~/.claude/mama/patterns.md` via `scripts/learn.py` — `seen` per user choice (mode, PR, branch), and `goal "<kind, steps>: est <m>m critical path / <size>, actual <m>m (active <m>m) / <n>k measured"`, which close-check prints as `LEARN:` (never guessed).
-3. Clean up only what this run created: step worktrees, temp files, processes it started. Goal worktree: branch pushed and tree clean → `git worktree remove` (branch stays); else keep it and say where. Never stop the user's servers or containers.
+3. Clean up only what this run created: step worktrees, temp files, processes it started. Goal worktree: branch pushed and tree clean → `git worktree remove` (branch stays); else keep it and say where. Never stop the user's servers or containers. After `git -C <main checkout> fetch --prune origin`: a branch this goal created that is already merged into its base (fast-forwarded, or its PR merged) → delete it on origin and locally, log `E branch deleted <branch>`; a branch it only continued → `E branch kept: <why>`. The close check flags a merged branch still there.
 4. Run `bash ${CLAUDE_SKILL_DIR}/scripts/py ${CLAUDE_SKILL_DIR}/scripts/close-check.py <store>/<slug>`. It lists what's missing (criteria evidence, step times, Trello line, metrics line, patterns update) and prints a prefilled metrics line: paste into `lessons.md`, fill the `?` fields. Status `done` only when it prints OK.
 5. Tell the user briefly: done, branch, PR status, overview location.

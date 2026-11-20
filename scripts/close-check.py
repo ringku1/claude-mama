@@ -149,6 +149,9 @@ PUSH = re.compile(r"^E\d+ \S+ push(ed)?\b", re.M)
 DELIVER = re.compile(r"^D\d+ \S+ .*deliver with known issues.*tag: user", re.M)
 EXTRA = re.compile(r"^D\d+ \S+ hunt: extra round.*tag: user", re.M)
 HUNT_CAP = {"quick": 1, "standard": 1, "full": 2}
+CI = re.compile(r"^E\d+ \S+ ci (?:\S+: )?(green|red|pending|none)\b(.*)$", re.M)
+CI_RED_OK = re.compile(r"^D\d+ \S+ .*ci: deliver with red CI.*tag: user", re.M)
+BRANCH_DONE = re.compile(r"^E\d+ \S+ branch (?:deleted|kept)\b", re.M)
 
 
 def tier_of(head):
@@ -212,6 +215,55 @@ def hunt_problems(log, head, tier):
                    "(`D hunt: deliver with known issues … (tag: user)`) / one more low round "
                    "(`D hunt: extra round … (tag: user)`)")
     return out
+
+
+def ci_problems(log, head):
+    """A code goal is met only when the CI on what it delivered is green: after the last push, the
+    last `E ci …` line (scripts/ci-wait.py writes it) says green, or `none: <why>` for a push no CI
+    runs on. Red reopens the loop — fix, push, check again — unless the user chose to deliver with a
+    failure that isn't this goal's (`D ci: deliver with red CI … (tag: user)` after it)."""
+    if head.get("type") not in ("build", "fix", "mixed"):
+        return []
+    pushes = [m for m in PUSH.finditer(log)]
+    if not pushes:
+        return []
+    after = [m for m in CI.finditer(log) if m.start() > pushes[-1].start()]
+    if not after:
+        return ["pushed but CI wasn't checked — run scripts/ci-wait.py <worktree> <sha> --log <log> in the "
+                "background (`E wait ci …`), or log `E ci none: <why>` when no CI runs on this push"]
+    last = after[-1]
+    state, rest = last.group(1), last.group(2).strip(" —-:")
+    if state == "none" and not rest:
+        return ["`E ci none` needs its reason: `E ci none: <why>`"]
+    if state == "pending":
+        return ["CI is still running on the last push — wait for it: scripts/ci-wait.py <worktree> <sha> --log <log>"]
+    if state == "red" and not CI_RED_OK.search(log, last.end()):
+        return [f"CI is red on the last push ({rest[:200]}) — the goal isn't met: read the failing job's log, "
+                "fix it as a fix step (failing-first), push and check again; a failure that isn't this goal's "
+                "(it fails on the base too) → ask the user, and log `D ci: deliver with red CI … (tag: user)`"]
+    return []
+
+
+def branch_problems(goal, head, log):
+    """A goal branch that is already merged into its base (a fast-forward, or a PR merged before
+    close) is deleted, locally and on origin, so no merged branch is left behind; a branch the goal
+    only continued (rules/delivery.md → Branch setup) is kept: `E branch kept: <why>`. Skipped in
+    the Stop hook's run (MAMA_SPEND_DEADLINE set), like every git check."""
+    if spend_deadline() != float("inf") or BRANCH_DONE.search(log):
+        return []
+    base, branch = head.get("base", "").split(" ")[0], head.get("branch", "").split(" ")[0]
+    if not branch or branch in ("—", "n/a") or not base or base in ("—", "n/a") or base == branch:
+        return []
+    left = []
+    for ref in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
+        if (_git(goal, "rev-parse", "-q", "--verify", ref) is not None
+                and _git(goal, "merge-base", "--is-ancestor", ref, f"origin/{base}") is not None):
+            left.append("origin" if "remotes" in ref else "local")
+    if not left:
+        return []
+    return [f"branch {branch} is merged into {base} but still exists ({' and '.join(left)}) — delete it "
+            f"(`git -C <main checkout> push origin --delete {branch}`, `git -C <main checkout> branch -d {branch}`) "
+            f"and log `E branch deleted {branch}`; a branch this goal only continued: log `E branch kept: <why>`"]
 
 
 def heartbeat_problems(goal, log, start=None):
@@ -420,6 +472,8 @@ def main():
     missing += commit_problems(goal, head)
     missing += hunt_problems(log, head, tier)
     missing += heartbeat_problems(goal, log, start)
+    missing += ci_problems(log, head)
+    missing += branch_problems(goal, head, log)
 
     # the measure may use the Stop hook's time up to MAMA_SPEND_DEADLINE.
     # The hook writes the final spend to the header after close-check, so judge by this run's own

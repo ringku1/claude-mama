@@ -37,7 +37,7 @@ class SkillText(unittest.TestCase):
                          + [read(os.path.join("templates", "log.md"))])
         for token in ("E research", "E research none", "E expectations", "E playback", "E db", "E dispatch",
                       "E wait", "E waiting", "E resume", "E hunt", "E hunt none", "E learn none", "E profile none",
-                      "E pushed", "E compaction", "known issues", "tag: user", "/code-review", "D budget"):
+                      "E pushed", "E ci", "D ci: deliver with red CI", "E branch deleted", "E branch kept", "E compaction", "known issues", "tag: user", "/code-review", "D budget"):
             self.assertIn(token, text, f"{token!r} is checked by a guard but no longer taught")
         for script in os.listdir(os.path.join(ROOT, "scripts")):
             if script.endswith(".py") and script not in ("fileio.py", "clock.py", "activity.py", "overview.py", "self-update.py"):

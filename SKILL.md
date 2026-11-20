@@ -85,7 +85,7 @@ Read `rules/loop.md`. Dev → verify → fix until every criterion has evidence,
 
 ### 6. Deliver & close
 
-Read `rules/delivery.md`. Merge latest base, push, PR per the user's choice. Final report in `overview.md`, lessons to `lessons.md`, clean up.
+Read `rules/delivery.md`. Merge latest base, push, wait for CI (`scripts/ci-wait.py`; red → back to the loop, the goal isn't met yet), PR per the user's choice. Final report in `overview.md`, lessons to `lessons.md`, clean up (a merged goal branch is deleted).
 
 ## Tiers
 
