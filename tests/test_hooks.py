@@ -261,14 +261,14 @@ class Stop(HookBase):
         t = time.time()
         reason = json.loads(self.hook("stop", hook=hook))["reason"]
         self.assertLess(time.time() - t, 8)  # under the hook's own 10s timeout
-        self.assertIn(f"close check didn't finish — run scripts/close-check.py {g}", reason)
+        self.assertIn(f"close check didn't finish — run scripts/close-check.py {os.path.realpath(g)}", reason)
         self.assertIn("nothing was learned", reason)
 
     def test_close_check_crash_still_blocks(self):
         hook = self.skill_with_close_check("raise RuntimeError('boom')")
         g = self.done_goal_with_another_problem()
         reason = json.loads(self.hook("stop", hook=hook))["reason"]
-        self.assertIn(f"close check didn't finish — run scripts/close-check.py {g}", reason)
+        self.assertIn(f"close check didn't finish — run scripts/close-check.py {os.path.realpath(g)}", reason)
         self.assertIn("nothing was learned", reason)
 
     def test_stop_and_precompact_run_no_git(self):

@@ -61,7 +61,7 @@ class Spend(Base):
         d = self.projects()
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"{sid}.jsonl")
-        with open(path, mode, encoding="utf-8") as f:
+        with open(path, mode, encoding="utf-8", newline="") as f:  # LF on Windows too, like real transcripts
             f.writelines(lines)
         if sub:
             sd = os.path.join(d, sid, "subagents")
